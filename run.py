@@ -17,7 +17,6 @@ if __name__=='__main__':
     action_space=fast_e.e.action_space,
     discount_factor=.995
     )
-
     def r(start_ep, ep,times=1):
         for i in range(start_ep, ep):
             if i % 10 == 0:
@@ -26,6 +25,8 @@ if __name__=='__main__':
 
             agent.play(fast_e,ep_i=i,max_steps=-1)
 
+            time.sleep(0.05)
+
             if (i+1) % 100 == 0:
                 # save the training result.
                 save(i+1)
@@ -33,8 +34,10 @@ if __name__=='__main__':
     def save(i):
         rpm_loc = 'rpm.pickle'
         print('saving rpm at {} to {}'.format(i, rpm_loc))
+        agent.lock.acquire()
         agent.save_weights(i)
         agent.rpm.save('rpm.pickle')
+        agent.lock.release()
 
     def load():
         start_ep = agent.load_weights()

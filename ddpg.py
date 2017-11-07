@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 # gym boilerplate
 import time
 import numpy as np
@@ -10,7 +12,7 @@ from math import *
 import random
 import time
 
-from rpm import rpm
+from rpm import rpm # replay memory implementation
 from noise import OUNoise, AdditiveGaussian
 
 import tensorflow as tf
@@ -34,7 +36,7 @@ class NN(object):
     def build_common(self):
         with tf.variable_scope('common'):
             self.s = tf.placeholder(tf.float32, [None, self.statedims], name='s')
-            normalized_s = layer_norm(self.s)
+            normalized_s = layer_norm(self.s)            
             h1 = layer_norm(slim.fully_connected(normalized_s, self.common_hidden[0],
                             activation_fn=lrelu,
                             trainable=self.trainable))
@@ -84,8 +86,7 @@ class Critic(NN):
 class DDPG(object):
     def __init__(self, observation_space, action_space,
                  discount_factor=0.99):
-        rpm_config = {'size': 1000000, 'batch_size': 64}
-        self.rpm = rpm(rpm_config)
+        self.rpm = rpm(1000000)
         self.training = True
         self.discount_factor = discount_factor
 
@@ -115,6 +116,9 @@ class DDPG(object):
 
         self.sync_target()
 
+        import threading as th
+        self.lock = th.Lock()
+
     def clamper(self, actions):
         return np.clip(np.nan_to_num(actions), a_max=self.action_high, a_min=self.action_low)
 
@@ -135,13 +139,13 @@ zip(ct_params, ce_params)]
         # 1. update the critic
         q_target = self.r1 + self.discount_factor * self.CriticTarget.Q
         q_target = tf.identity(q_target, 'q_target')
-        self.critic_loss = (q_target - self.CriticEval.Q) ** 2
+        self.critic_loss = tf.losses.mean_squared_error(q_target, self.CriticEval.Q)
         self.critic_loss = tf.identity(self.critic_loss, 'critic_loss')
         # 2. collect TD errors for sampling
         self.td_errors = q_target - self.CriticEval.Q
 
         # 3. update the actor
-        self.actor_loss = - self.CriticEval.Q
+        self.actor_loss = tf.reduce_mean(- self.CriticEval.Q)
         self.actor_loss = tf.identity(self.actor_loss, 'actor_loss')
         # maximize q1_predict -> better actor
 
@@ -150,71 +154,40 @@ zip(ct_params, ce_params)]
 
         # optimizer on
         # actor is harder to stabilize...
-        self.weighted_is = tf.Variable(1.0, name='weighted_is')
-
         critic_opt = tf.train.AdamOptimizer(1e-3, name='adam_critic')
-        c_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='critic_eval')
-        c_grads = tf.gradients(self.critic_loss, c_params)
-
-        self.scaled_c_grads = [self.weighted_is * g for g in c_grads]
-        self.aggregated_c_grads = [tf.placeholder(tf.float32) for _ in self.scaled_c_grads]
-        self.critic_train = critic_opt.apply_gradients(zip(self.aggregated_c_grads, c_params))
+        self.critic_train = critic_opt.minimize(self.critic_loss)
 
         actor_opt = tf.train.AdamOptimizer(1e-4, name='adam_actor')
         a_params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='actor_eval')
         q_grads = [-1.0 * grad for grad in tf.gradients(self.CriticEval.Q, self.CriticEval.action_in)]
         a_grads = tf.gradients(self.ActorEval.a, a_params, q_grads)
-        self.scaled_a_grads = [self.weighted_is * g for g in a_grads]
-        self.aggregated_a_grads = [tf.placeholder(tf.float32) for _ in self.scaled_a_grads]
-        self.actor_train = actor_opt.apply_gradients(zip(self.aggregated_a_grads, a_params))
+        self.actor_train = actor_opt.apply_gradients(zip(a_grads, a_params))
 
         tf.summary.scalar('critic_loss_summary', tf.reduce_sum(self.critic_loss))
         tf.summary.scalar('actor_loss_summary', tf.reduce_sum(self.actor_loss))
 
-    def feed_train(self, s1d, a1d, r1d, s2d, weighted_is):
-        a_gs, c_gs = None, None
-        closs, aloss, td_errors = [], [], []
+    def feed_train(self, s1d, a1d, r1d, s2d):
+        #update actor
+        aloss, _ = self.sess.run([self.actor_loss, self.actor_train],
+            feed_dict={
+            self.CriticEval.s: s1d,
+            self.ActorEval.s: s1d,
+            })
 
-        def sum_grads(gs, scaled_g_i):
-            if gs is None:
-                return scaled_g_i
-            else:
-                return [gs[k] + scaled_g_i[k] for k in range(len(scaled_g_i))]
-        for i in range(s1d.shape[0]):
-            #update actor
-            aloss_i, scaled_a_g = self.sess.run([self.actor_loss, self.scaled_a_grads],
-                feed_dict={
-                self.CriticEval.s: [s1d[i]],
-                self.ActorEval.s: [s1d[i]],
-                self.weighted_is: weighted_is[i]
-                })
+        # update critic
+        td_errors, closs, _= self.sess.run([self.td_errors, self.critic_loss,
+                            self.critic_train],
+            feed_dict={
+            self.CriticEval.s: s1d,
+            self.CriticEval.action_in: a1d,
+            self.CriticTarget.s: s2d,
+            self.ActorEval.s: s1d,
+            self.ActorTarget.s: s2d,
+            self.r1:r1d,
+            })
 
-            # update critic
-            td_error_i, closs_i, scaled_c_g = self.sess.run([self.td_errors, self.critic_loss,
-                                self.scaled_c_grads],
-                feed_dict={
-                self.CriticEval.s: [s1d[i]],
-                self.CriticEval.action_in: [a1d[i]],
-                self.CriticTarget.s: [s2d[i]],
-                self.ActorEval.s: [s1d[i]],
-                self.ActorTarget.s: [s2d[i]],
-                self.r1: [r1d[i]],
-                self.weighted_is: weighted_is[i]
-                })
-
-            td_errors.append(td_error_i)
-            aloss.append(aloss_i)
-            closs.append(closs_i)
-            c_gs = sum_grads(c_gs, scaled_c_g)
-            a_gs = sum_grads(a_gs, scaled_a_g)
-
-        c_dict = {i: g for i, g in zip(self.aggregated_c_grads, c_gs)}
-        a_dict = {i: g for i, g in zip(self.aggregated_a_grads, a_gs)}
-        feed_dict = c_dict.copy()
-        feed_dict.update(a_dict)
-        _, _ = self.sess.run([self.critic_train, self.actor_train], feed_dict=feed_dict)
         _, _ = self.sess.run([self.critic_shift, self.actor_shift], feed_dict={self.tau:1e-2})
-        return [[np.mean(aloss)]], [[np.mean(closs)]], td_errors
+        return aloss, closs, td_errors
 
     def joint_inference(self, state):
         a1d = self.sess.run(self.ActorEval.a, feed_dict={self.ActorEval.s: state})
@@ -228,19 +201,14 @@ zip(ct_params, ce_params)]
     def train(self, ep_i):
         batch_size = 64
         epochs = 1
-        aloss, closs = [[None]], [[None]] # if rpm too small
-        if self.rpm.record_size > batch_size * 256:
+        aloss, closs = None, None # if rpm too small
+        if self.rpm.size() > batch_size:
             #if enough samples in memory
             # sample randomly a minibatch from memory
-            sample, w_is, e_id = self.rpm.sample(ep_i)
-            s1d, a1d, r1d, s2d = sample
+            [s1d, a1d, r1d, s2d] = self.rpm.sample(batch_size)
             scaled_r1d = [self.rpm.zero_one_scale(r_i) for r_i in r1d.squeeze()] # scale rewards to be 0 - 1
             scaled_r1d = np.reshape(scaled_r1d, [-1, 1])
-            aloss, closs, td_errors = self.feed_train(s1d, a1d, scaled_r1d, s2d, w_is)
-            self.rpm.update_priority(e_id, td_errors)
-            if np.random.random() < 1.0/1.0e5: self.rpm.rebalance() # don't rebalanceoften
-        else:
-            if np.random.random() < 1.0/1.0e4: print('rpm size: {} < min size: {}'.format(self.rpm.record_size, batch_size * 256))
+            aloss, closs, td_errors = self.feed_train(s1d, a1d, scaled_r1d, s2d)
         return aloss, closs
 
     # gymnastics
@@ -288,15 +256,14 @@ zip(ct_params, ce_params)]
 
             # feed into replay memory
             if self.training == True:
-                default_td = 1.0
                 episode_memory.append((
-                    observation_before_action,action,reward,observation, default_td
+                    observation_before_action,action,reward,observation
                 ))
 
                 # don't feed here since you never know whether the episode will complete without error.
                 aloss, closs = self.train(ep_i)
 
-            if done or (steps > 1000 and total_reward < 0):  #if not shit is happening end
+            if done :
                 self.exploration_noise.reset()
                 break
 
@@ -311,8 +278,10 @@ zip(ct_params, ce_params)]
         ))
         sys.stdout.flush()
 
+        self.lock.acquire()
         for t in episode_memory:
             self.rpm.store(t)
+        self.lock.release()
 
         return
 
