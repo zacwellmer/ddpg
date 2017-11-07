@@ -11,3 +11,4 @@ Relevant Background Reading:
 * [Deep Deterministic Policy Gradients](https://arxiv.org/abs/1509.02971)
 * [Prioritized Experience Replay](https://arxiv.org/abs/1511.05952)
 * [Layer Normalization](https://arxiv.org/abs/1607.06450)
+* [On the Theory of Brownian Motion](https://journals.aps.org/pr/abstract/10.1103/PhysRev.36.823)
