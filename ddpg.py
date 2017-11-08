@@ -26,7 +26,7 @@ def lrelu(x, leak=0.2):
 
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
-        self.rpm = RPM(MEMORY_CAPACITY)
+        self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': 64})
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
 
@@ -57,8 +57,13 @@ class DDPG(object):
 
         q_target = self.R + GAMMA * q_
         # in the feed_dic for the td_error, the self.a should change to actions in memory
-        td_error = tf.losses.mean_squared_error(labels=q_target, predictions=q)
-        self.ctrain = tf.train.AdamOptimizer(LR_C).minimize(td_error, var_list=self.ce_params)
+        self.w_is = tf.placeholder(tf.float32, shape=[-1, 1], name='weighted_is')
+
+        self.td_error = (q_target - predictions)**2
+        c_opt = tf.train.AdamOptimizer(LR_C)
+        [c_grads, c_vars] = c_opt.compute_gradients(self.td_error, var_list=self.ce_params)
+        c_grads = list(map(lambda w_is_i, c_g_i: tf.multiply(w_is_i, c_g_i), self.w_is, c_grads))
+        c_opt.apply_gradients(zip(c_grads, c_vars))
 
         a_loss = - tf.reduce_mean(q)    # maximize the q
         self.atrain = tf.train.AdamOptimizer(LR_A).minimize(a_loss, var_list=self.ae_params)
@@ -72,9 +77,13 @@ class DDPG(object):
         # soft target replacement
         self.sess.run(self.soft_replace)
 
-        [bs, ba, br, bs_] = self.rpm.sample(BATCH_SIZE)
-        self.sess.run(self.atrain, {self.S: bs})
-        self.sess.run(self.ctrain, {self.S: bs, self.a: ba, self.R: br, self.S_: bs_})
+        sample, w_is, e_id = self.rpm.sample(BATCH_SIZE)
+        [bs, ba, br, bs_] = sample
+        self.sess.run(self.atrain, {self.S: bs, self.w_is: w_is})
+        _, td_errors = self.sess.run([self.ctrain, self.td_error], {self.S: bs, 
+                                        self.a: ba, self.R: br, self.S_: bs_, self.w_is: w_is})
+        self.rpm.update_priority(e_id, td_errors)
+        if np.random.random() < 1.0/1.0e4: self.rpm.rebalance() # don't rebalanceoften
 
     def _build_a(self, s, scope, trainable):
         hidden_units = 60
