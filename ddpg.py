@@ -36,7 +36,7 @@ class NN(object):
     def build_common(self):
         with tf.variable_scope('common'):
             self.s = tf.placeholder(tf.float32, [None, self.statedims], name='s')
-            normalized_s = layer_norm(self.s)            
+            normalized_s = layer_norm(self.s)
             h1 = layer_norm(slim.fully_connected(normalized_s, self.common_hidden[0],
                             activation_fn=lrelu,
                             trainable=self.trainable))
@@ -212,33 +212,25 @@ zip(ct_params, ce_params)]
         return aloss, closs
 
     # gymnastics
-    def play(self,env, ep_i, max_steps=-1): # play 1 episode
+    def play(self,env, ep_i, max_steps=-1, is_test=False): # play 1 episode
         timer = time.time()
 
-        max_steps = max_steps if max_steps > 0 else 50000
+        max_steps = max_steps if max_steps > 0 else 1000
         steps = 0
         total_reward = 0
         episode_memory = []
 
-        # removed: state stacking
-        # moved: observation processing
-
-        try:
-            observation = env.reset()
-        except Exception as e:
-            print('(agent) something wrong on reset(). episode terminates now')
-            traceback.print_exc()
-            print(e)
-            return
+        observation = env.reset()
 
         while True and steps <= max_steps:
             steps +=1
 
             observation_before_action = observation # s1
-            add_noise = self.exploration_noise.noise()
-            action = self.act(observation_before_action) + add_noise # a1
+            action = self.act(observation_before_action)
+            if not is_test: # add noise for exploration if training
+                add_noise = self.exploration_noise.noise()
+                action = action + add_noise
             action = self.clamper(action)
-            if np.random.uniform()<0.001: print('noise added: ', add_noise, 'action: ', action)
             action_out = action
 
             # o2, r1,
@@ -268,9 +260,12 @@ zip(ct_params, ce_params)]
                 break
 
         totaltime = time.time()-timer
-        summary = self.sess.run(self.merged,
-                                feed_dict={self.total_episode_reward: total_reward,
-                                self.actor_loss: aloss, self.critic_loss: closs})
+        if is_test:
+            summary = self.sess.run(self.merged, feed_dict={
+                                    self.total_episode_reward: total_reward})
+        else:
+            summary = self.sess.run(self.merged,feed_dict={self.actor_loss: aloss,
+                                    self.critic_loss: closs})
         self.train_writer.add_summary(summary, ep_i)
         if ep_i % 10 == 0:
             print('episode done in {} steps in {:.2f} sec, {:.4f} sec/step, got reward :{:.2f}'.format(
@@ -292,11 +287,11 @@ zip(ct_params, ce_params)]
         actions,q = actions[0],q[0]
         return actions
 
-    def save_weights(self, i):
-        self.saver.save(self.sess, 'checkpoints/ddpg', i)
+    def save_weights(self, checkpoint_dir, i):
+        self.saver.save(self.sess, checkpoint_dir, i)
 
-    def load_weights(self):
-        latest_loc = tf.train.latest_checkpoint('checkpoints')
+    def load_weights(self, checkpoint_dir):
+        latest_loc = tf.train.latest_checkpoint(checkpoint_dir)
         if latest_loc is not None:
             self.saver.restore(self.sess, latest_loc)
             return int(latest_loc.split('-')[-1]) # episode
