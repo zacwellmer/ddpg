@@ -106,12 +106,14 @@ class DDPG(object):
         self.build()
 
         self.total_episode_reward = tf.placeholder(tf.float32, [], name='episode_reward')
-        tf.summary.scalar('total_episode_reward', self.total_episode_reward)
+        with tf.name_scope('test'):
+            tf.summary.scalar('total_episode_reward', self.total_episode_reward)
         self.merged = tf.summary.merge_all()
 
         self.saver = tf.train.Saver()
         self.sess = tf.Session()
-        self.train_writer = tf.summary.FileWriter('tensorboard/', self.sess.graph)
+        self.train_writer = tf.summary.FileWriter('tensorboard/train', self.sess.graph)
+        self.test_writer = tf.summary.FileWriter('tensorboard/test')
         self.sess.run(tf.global_variables_initializer())
 
         self.sync_target()
@@ -163,8 +165,9 @@ zip(ct_params, ce_params)]
         a_grads = tf.gradients(self.ActorEval.a, a_params, q_grads)
         self.actor_train = actor_opt.apply_gradients(zip(a_grads, a_params))
 
-        tf.summary.scalar('critic_loss_summary', tf.reduce_sum(self.critic_loss))
-        tf.summary.scalar('actor_loss_summary', tf.reduce_sum(self.actor_loss))
+        with tf.name_scope('train'):
+            tf.summary.scalar('critic_loss_summary', tf.reduce_sum(self.critic_loss))
+            tf.summary.scalar('actor_loss_summary', tf.reduce_sum(self.actor_loss))
 
     def feed_train(self, s1d, a1d, r1d, s2d):
         #update actor
@@ -263,10 +266,12 @@ zip(ct_params, ce_params)]
         if is_test:
             summary = self.sess.run(self.merged, feed_dict={
                                     self.total_episode_reward: total_reward})
+            self.test_writer.add_summary(summary, ep_i)
         else:
             summary = self.sess.run(self.merged,feed_dict={self.actor_loss: aloss,
-                                    self.critic_loss: closs})
-        self.train_writer.add_summary(summary, ep_i)
+                                    self.critic_loss: closs,
+                                    self.total_episode_reward: total_reward})
+            self.train_writer.add_summary(summary, ep_i)
         if ep_i % 10 == 0:
             print('episode done in {} steps in {:.2f} sec, {:.4f} sec/step, got reward :{:.2f}'.format(
         steps,totaltime,totaltime/steps,total_reward

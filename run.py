@@ -12,7 +12,7 @@ if __name__=='__main__':
     env_name = 'Pendulum-v0'
     rpm_loc = '{}-rpm.pickle'.format(env_name)
     checkpoint_dir = '{}-checkpoints/'.format(env_name)
-    fast_e = fastenv(gym.make(env_name, skipcount=1)
+    fast_e = fastenv(gym.make(env_name), skipcount=1)
     obs_space_dims = fast_e.e.observation_space.shape[0] * 2
 
     agent = DDPG(
@@ -30,7 +30,7 @@ if __name__=='__main__':
             if i % 20:
                 agent.play(fast_e,ep_i=i,max_steps=max_steps)
             else: # test performance
-                agent.play(fast_e, ep_i, max_steps=max_steps)
+                agent.play(fast_e, ep_i=i, max_steps=max_steps)
 
             if (i+1) % 100 == 0:
                 # save the training result.
