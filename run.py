@@ -30,7 +30,7 @@ if __name__=='__main__':
             if i % 20:
                 agent.play(fast_e,ep_i=i,max_steps=max_steps)
             else: # test performance
-                agent.play(fast_e, ep_i=i, max_steps=max_steps)
+                agent.play(fast_e, ep_i=i, max_steps=max_steps,is_test=True)
 
             if (i+1) % 100 == 0:
                 # save the training result.

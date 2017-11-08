@@ -243,10 +243,13 @@ zip(ct_params, ce_params)]
         totaltime = time.time()-timer
         if is_test:
             summary = self.sess.run(self.merged, feed_dict={
+                                    self.critic_loss: closs,
+                                    self.actor_loss: aloss,
                                     self.total_episode_reward: total_reward})
             self.test_writer.add_summary(summary, ep_i)
         else:
-            summary = self.sess.run(self.merged,feed_dict={self.actor_loss: aloss,
+            summary = self.sess.run(self.merged,feed_dict={
+                                    self.actor_loss: aloss,
                                     self.critic_loss: closs,
                                     self.total_episode_reward: total_reward})
             self.train_writer.add_summary(summary, ep_i)
