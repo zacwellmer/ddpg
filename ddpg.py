@@ -1,6 +1,3 @@
-from __future__ import print_function
-
-# gym boilerplate
 import time
 import numpy as np
 import sys
@@ -16,11 +13,8 @@ from rpm import rpm # replay memory implementation
 from noise import OUNoise, AdditiveGaussian
 
 import tensorflow as tf
-from tensorflow.python import debug as tfdbg
 import tensorflow.contrib.slim as slim
 from tensorflow.contrib.layers import layer_norm
-
-import traceback
 
 def lrelu(x, leak=0.2):
     return tf.maximum(x, leak * x)
@@ -91,11 +85,10 @@ class DDPG(object):
         self.discount_factor = discount_factor
 
         self.inputdims = observation_space
-
         self.action_high, self.action_low = action_space.high, action_space.low
         self.actiondims = action_space.shape[0]
+
         self.exploration_noise = OUNoise(self.actiondims, sigma=0.2)
-        #self.exploration_noise = AdditiveGaussian(self.actiondims, sigma=1.0)
 
         self.r1 = tf.placeholder(tf.float32,shape=[None,1], name='reward')
         self.ActorEval = Actor('actor_eval', self.inputdims, self.actiondims, trainable=True)
@@ -118,9 +111,6 @@ class DDPG(object):
 
         self.sync_target()
 
-        import threading as th
-        self.lock = th.Lock()
-
     def clamper(self, actions):
         return np.clip(np.nan_to_num(actions), a_max=self.action_high, a_min=self.action_low)
 
@@ -138,24 +128,21 @@ zip(at_params, ae_params)]
 zip(ct_params, ce_params)]
 
     def build(self):
-        # 1. update the critic
+        # update the critic
         q_target = self.r1 + self.discount_factor * self.CriticTarget.Q
         q_target = tf.identity(q_target, 'q_target')
         self.critic_loss = tf.losses.mean_squared_error(q_target, self.CriticEval.Q)
         self.critic_loss = tf.identity(self.critic_loss, 'critic_loss')
-        # 2. collect TD errors for sampling
-        self.td_errors = q_target - self.CriticEval.Q
 
-        # 3. update the actor
+        # update the actor
         self.actor_loss = tf.reduce_mean(- self.CriticEval.Q)
         self.actor_loss = tf.identity(self.actor_loss, 'actor_loss')
         # maximize q1_predict -> better actor
 
-        # 4. shift the weights (aka target network)
+        # shift the weights (aka target network)
         self.shift()
 
-        # optimizer on
-        # actor is harder to stabilize...
+        # update weights
         critic_opt = tf.train.AdamOptimizer(1e-3, name='adam_critic')
         self.critic_train = critic_opt.minimize(self.critic_loss)
 
@@ -165,6 +152,7 @@ zip(ct_params, ce_params)]
         a_grads = tf.gradients(self.ActorEval.a, a_params, q_grads)
         self.actor_train = actor_opt.apply_gradients(zip(a_grads, a_params))
 
+        # tensorboard summaries
         with tf.name_scope('train'):
             tf.summary.scalar('critic_loss_summary', tf.reduce_sum(self.critic_loss))
             tf.summary.scalar('actor_loss_summary', tf.reduce_sum(self.actor_loss))
@@ -178,8 +166,7 @@ zip(ct_params, ce_params)]
             })
 
         # update critic
-        td_errors, closs, _= self.sess.run([self.td_errors, self.critic_loss,
-                            self.critic_train],
+        closs, _= self.sess.run([self.critic_loss, self.critic_train],
             feed_dict={
             self.CriticEval.s: s1d,
             self.CriticEval.action_in: a1d,
@@ -190,7 +177,7 @@ zip(ct_params, ce_params)]
             })
 
         _, _ = self.sess.run([self.critic_shift, self.actor_shift], feed_dict={self.tau:1e-2})
-        return aloss, closs, td_errors
+        return aloss, closs
 
     def joint_inference(self, state):
         a1d = self.sess.run(self.ActorEval.a, feed_dict={self.ActorEval.s: state})
@@ -204,14 +191,14 @@ zip(ct_params, ce_params)]
     def train(self, ep_i):
         batch_size = 64
         epochs = 1
-        aloss, closs = None, None # if rpm too small
+        aloss, closs = None, None
         if self.rpm.size() > batch_size:
             #if enough samples in memory
-            # sample randomly a minibatch from memory
+            # sample minibatch from memory
             [s1d, a1d, r1d, s2d] = self.rpm.sample(batch_size)
             scaled_r1d = [self.rpm.zero_one_scale(r_i) for r_i in r1d.squeeze()] # scale rewards to be 0 - 1
             scaled_r1d = np.reshape(scaled_r1d, [-1, 1])
-            aloss, closs, td_errors = self.feed_train(s1d, a1d, scaled_r1d, s2d)
+            aloss, closs = self.feed_train(s1d, a1d, scaled_r1d, s2d)
         return aloss, closs
 
     # gymnastics
@@ -236,15 +223,7 @@ zip(ct_params, ce_params)]
             action = self.clamper(action)
             action_out = action
 
-            # o2, r1,
-            try:
-                observation, reward, done, _info = env.step(action_out) # take long time
-            except Exception as e:
-                print('(agent) something wrong on step(). episode teminates now')
-                traceback.print_exc()
-                print(e)
-                print('Action:', action, 'observation: ', observation_before_action)
-                return
+            observation, reward, done, _info = env.step(action_out)
 
             # d1
             total_reward += reward
@@ -255,7 +234,6 @@ zip(ct_params, ce_params)]
                     observation_before_action,action,reward,observation
                 ))
 
-                # don't feed here since you never know whether the episode will complete without error.
                 aloss, closs = self.train(ep_i)
 
             if done :
@@ -272,18 +250,9 @@ zip(ct_params, ce_params)]
                                     self.critic_loss: closs,
                                     self.total_episode_reward: total_reward})
             self.train_writer.add_summary(summary, ep_i)
-        if ep_i % 10 == 0:
-            print('episode done in {} steps in {:.2f} sec, {:.4f} sec/step, got reward :{:.2f}'.format(
-        steps,totaltime,totaltime/steps,total_reward
-        ))
-        sys.stdout.flush()
 
-        self.lock.acquire()
         for t in episode_memory:
             self.rpm.store(t)
-        self.lock.release()
-
-        return
 
     # one step of action, given observation
     def act(self,observation):
