@@ -13,7 +13,7 @@ LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
-MEMORY_CAPACITY = 1000000
+MEMORY_CAPACITY = 100000
 LEARN_START = 10000
 BATCH_SIZE = 64
 
@@ -26,7 +26,7 @@ def lrelu(x, leak=0.2):
 
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
-        self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': 64})
+        self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
 
@@ -57,31 +57,46 @@ class DDPG(object):
 
         q_target = self.R + GAMMA * q_
         # in the feed_dic for the td_error, the self.a should change to actions in memory
-        self.w_is = tf.placeholder(tf.float32, shape=[-1, 1], name='weighted_is')
+        self.w_is = tf.placeholder(tf.float32, shape=[None, 1], name='weighted_is')
+        weighted_is = tf.unstack(self.w_is, num=BATCH_SIZE)
 
-        self.td_error = (q_target - predictions)**2
+        self.td_errors = (q_target - q)**2
+        self.td_errors = tf.unstack(self.td_errors, num=BATCH_SIZE)
+
         c_opt = tf.train.AdamOptimizer(LR_C)
-        [c_grads, c_vars] = c_opt.compute_gradients(self.td_error, var_list=self.ce_params)
-        c_grads = list(map(lambda w_is_i, c_g_i: tf.multiply(w_is_i, c_g_i), self.w_is, c_grads))
-        c_opt.apply_gradients(zip(c_grads, c_vars))
+        c_grads = [tf.gradients(td_i, self.ce_params) for td_i in self.td_errors]
+        c_grads = list(map(lambda w_is_i, c_g: [w_is_i * c_g_i for c_g_i in c_g], weighted_is, c_grads))
+        c_grads_agg = [0.0]*len(c_grads[0])
+        for c_grad_i in c_grads:
+            c_grads_agg = [c_grad_i[j]/BATCH_SIZE + c_grads_agg[j] for j in range(len(c_grads_agg))]
+        self.ctrain = c_opt.apply_gradients(zip(c_grads_agg, self.ce_params))
 
-        a_loss = - tf.reduce_mean(q)    # maximize the q
-        self.atrain = tf.train.AdamOptimizer(LR_A).minimize(a_loss, var_list=self.ae_params)
+        a_loss = - q    # maximize the q
+        a_loss = tf.unstack(a_loss, num=BATCH_SIZE)
+
+        a_opt = tf.train.AdamOptimizer(LR_A)
+        a_grads = [tf.gradients(a_loss_i, self.ae_params) for a_loss_i in a_loss]
+        a_grads = list(map(lambda w_is_i, a_g: [w_is_i * a_g_i for a_g_i in a_g], weighted_is, a_grads))
+        a_grads_agg = [0.0]*len(a_grads[0])
+        for a_grad_i in a_grads:
+            a_grads_agg = [a_grad_i[j]/BATCH_SIZE + a_grads_agg[j] for j in range(len(a_grads_agg))]
+        self.atrain = a_opt.apply_gradients(zip(a_grads_agg, self.ae_params))
 
         self.sess.run(tf.global_variables_initializer())
 
     def choose_action(self, s):
         return self.sess.run(self.a, {self.S: s[np.newaxis, :]})[0]
 
-    def learn(self):
+    def learn(self, step_i):
         # soft target replacement
         self.sess.run(self.soft_replace)
 
-        sample, w_is, e_id = self.rpm.sample(BATCH_SIZE)
+        sample, w_is, e_id = self.rpm.sample(step_i)
         [bs, ba, br, bs_] = sample
-        self.sess.run(self.atrain, {self.S: bs, self.w_is: w_is})
-        _, td_errors = self.sess.run([self.ctrain, self.td_error], {self.S: bs, 
-                                        self.a: ba, self.R: br, self.S_: bs_, self.w_is: w_is})
+        self.sess.run(self.atrain, {self.S: bs, self.w_is: np.reshape(w_is, [-1, 1])})
+        _, td_errors = self.sess.run([self.ctrain, self.td_errors], {self.S: bs, 
+                                        self.a: ba, self.R: br, self.S_: bs_, 
+                                        self.w_is: np.reshape(w_is, [-1, 1])})
         self.rpm.update_priority(e_id, td_errors)
         if np.random.random() < 1.0/1.0e4: self.rpm.rebalance() # don't rebalanceoften
 
@@ -133,10 +148,11 @@ for i in range(MAX_EPISODES*10):
         a = np.clip(a, a_low, a_bound) 
         s_, r, done, info = env.step(a)
         if i < MAX_EPISODES:
-            ddpg.rpm.store([s, a, r, s_])
+            default_td_error = 100.0
+            ddpg.rpm.store([s, a, r, s_, default_td_error])
 
-            if ddpg.rpm.size() >= LEARN_START:
-                ddpg.learn()
+            if ddpg.rpm.record_size >= LEARN_START:
+                ddpg.learn(j)
 
         s = s_
         ep_reward += r

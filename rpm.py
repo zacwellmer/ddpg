@@ -14,7 +14,7 @@ import pickle
 import binary_heap
 
 
-class rpm(object):
+class RPM(object):
     def __init__(self, conf):
         self.size = conf['size']
         self.replace_flag = conf['replace_old'] if 'replace_old' in conf else True
