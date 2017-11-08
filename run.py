@@ -39,7 +39,7 @@ if __name__=='__main__':
     def save(i):
         print('saving rpm at {} to {}'.format(i, rpm_loc))
         agent.lock.acquire()
-        agent.save_weights(i)
+        agent.save_weights(checkpoint_dir, i)
         agent.rpm.save(rpm_loc)
         agent.lock.release()
 
