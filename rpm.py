@@ -5,7 +5,7 @@ import random
 import pickle
 
 # replay buffer per http://pemami4911.github.io/blog/2016/08/21/ddpg-rl.html
-class rpm(object):
+class RPM(object):
     #replay memory
     def __init__(self,buffer_size):
         self.buffer_size = buffer_size
