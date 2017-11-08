@@ -9,7 +9,8 @@ from multi import fastenv
 import gym
 
 if __name__=='__main__':
-    fast_e = fastenv(gym.make('BipedalWalker-v2'), skipcount=1)
+    #fast_e = fastenv(gym.make('BipedalWalker-v2'), skipcount=1)
+    fast_e = fastenv(gym.make('Pendulum-v0'), skipcount=1)
     obs_space_dims = fast_e.e.observation_space.shape[0] * 2
 
     agent = DDPG(
@@ -46,4 +47,4 @@ if __name__=='__main__':
         return start_ep
 
     start_ep = load()
-    r(start_ep, 10000)
+    r(start_ep, 50000)
