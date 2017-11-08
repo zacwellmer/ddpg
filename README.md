@@ -5,7 +5,7 @@
 3) Discontinuous Prioritized Experience Replay
 
 Code:
-I have used code for initial DDPG from [here](https://github.com/ctmakro/gymnastics) and prioritized experience replay [here](https://github.com/Damcy/prioritized-experience-replay)
+I have used code for initial DDPG from [here](https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow/blob/master/contents/9_Deep_Deterministic_Policy_Gradient_DDPG/DDPG_update.py) and prioritized experience replay [here](https://github.com/Damcy/prioritized-experience-replay)
 
 Relevant Background Reading:
 * [Deep Deterministic Policy Gradients](https://arxiv.org/abs/1509.02971)
