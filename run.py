@@ -30,7 +30,7 @@ if __name__=='__main__':
             if i % 20:
                 agent.play(fast_e,ep_i=i,max_steps=max_steps)
             else: # test performance
-                agent.play(fast_e, ep_i=i, max_steps=max_steps)
+                agent.play(fast_e, ep_i=i, max_steps=max_steps,is_test=True)
 
             if (i+1) % 100 == 0:
                 # save the training result.
@@ -38,10 +38,8 @@ if __name__=='__main__':
 
     def save(i):
         print('saving rpm at {} to {}'.format(i, rpm_loc))
-        agent.lock.acquire()
         agent.save_weights(checkpoint_dir, i)
         agent.rpm.save(rpm_loc)
-        agent.lock.release()
 
     def load():
         start_ep = agent.load_weights(checkpoint_dir)
