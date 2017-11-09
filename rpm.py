@@ -1,8 +1,7 @@
 #!/usr/bin/python
 # -*- encoding=utf-8 -*-
-# original author: Ian
-# original e-mail: stmayue@gmail.com
-# update author: Zac
+# author: Ian
+# e-mail: stmayue@gmail.com
 # description:
 
 import sys
@@ -17,7 +16,6 @@ import binary_heap
 class RPM(object):
     def __init__(self, conf):
         self.size = conf['size']
-        self.replace_flag = conf['replace_old'] if 'replace_old' in conf else True
         self.priority_size = conf['priority_size'] if 'priority_size' in conf else self.size
 
         self.alpha = conf['alpha'] if 'alpha' in conf else 0.7
@@ -28,13 +26,8 @@ class RPM(object):
         # partition number N, split total size to N part
         self.partition_num = conf['partition_num'] if 'partition_num' in conf else self.batch_size
 
-        #used for scaling
-        self.min_reward = 0.0
-        self.max_reward = 1.0
-
         self.index = 0
         self.record_size = 0
-        self.isFull = False
 
         self._experience = {}
         self.priority_queue = binary_heap.BinaryHeap(self.priority_size)
@@ -93,17 +86,12 @@ class RPM(object):
         """
         if self.record_size <= self.size:
             self.record_size += 1
-        if self.index % self.size == 0:
-            self.isFull = True if len(self._experience) == self.size else False
-            if self.replace_flag:
-                self.index = 1
-                return self.index
-            else:
-                sys.stderr.write('Experience replay buff is full and replace is set to FALSE!\n')
-                return -1
+        if len(self._experience) == self.size:
+            self.index = self.sample_removal()
         else:
             self.index += 1
-            return self.index
+
+        return self.index
 
     def store(self, experience):
         """
@@ -156,6 +144,19 @@ class RPM(object):
         for i in range(0, len(indices)):
             self.priority_queue.update(math.fabs(delta[i]), indices[i])
 
+    def sample_removal(self):
+        dist_index = math.floor(self.record_size / self.size * self.partition_num)
+        # issue 1 by @camigord
+        partition_size = math.floor(self.size / self.partition_num)
+        partition_max = dist_index * partition_size
+        distribution = self.distributions[dist_index]
+        
+        lower_bound = distribution['strata_ends'][self.batch_size] + 1
+        upper_bound = distribution['strata_ends'][self.batch_size+1]
+        index = random.randint(lower_bound, upper_bound)
+        rank_e_id = self.priority_queue.priority_to_experience([index])[0]
+        return rank_e_id
+
     def sample(self, global_step):
         """
         sample a mini batch from experience replay
@@ -199,14 +200,5 @@ class RPM(object):
         experience = self.retrieve(rank_e_id)
         return experience, w, rank_e_id
 
-    def zero_one_scale(self, r_i):
-        return (r_i - self.min_reward) / self.max_reward
-
     def save(self, pathname):
-        reward_index = 2
-        self.min_reward = min([self._experience[i][reward_index] for i in self._experience])
-        # add self.min_reward b/c we pushed everything to the right. ex) new_r =
-        # (r-min)/max
-        self.max_reward = max([self._experience[i][reward_index] for i in self._experience]) + self.min_reward
         pickle.dump(self, open(pathname, 'wb'))
-
