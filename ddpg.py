@@ -4,6 +4,7 @@ import numpy as np
 import gym
 import os
 import pickle
+from env_wrapper import fastenv
 
 from noise import OUNoise
 from rpm import RPM
@@ -70,7 +71,7 @@ class DDPG(object):
         self.episode_reward = tf.placeholder(tf.float32,name='epsiode_reward')
         tf.summary.scalar('episode_reward', self.episode_reward)
         self.merged = tf.summary.merge_all()
-        self.train_writer = tf.summary.FileWriter('/home/ubuntu/tensorboard/plain/', self.sess.graph)
+        self.train_writer = tf.summary.FileWriter('/home/ubuntu/{}-tensorboard/plain/'.format(ENV_NAME), self.sess.graph)
         
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
@@ -111,14 +112,15 @@ class DDPG(object):
         self.train_writer.add_summary(summary, ep_i)
 
     def save(self, i):
-        self.rpm.save('rpm.pickle')
-        self.saver.save(self.sess, 'checkpoints/ddpg', i)
+        
+        self.rpm.save(ENV_NAME+'-rpm.pickle')
+        self.saver.save(self.sess, ENV_NAME+'-checkpoints/ddpg', i)
 
     def load(self):
-        if os.path.exists('rpm.pickle'):
-            pickle.load(open('rpm.pickle', 'rb'))
+        if os.path.exists(ENV_NAME+'-rpm.pickle'):
+            pickle.load(open(ENV_NAME+'-rpm.pickle', 'rb'))
 
-        latest_loc = tf.train.latest_checkpoint('checkpoints')
+        latest_loc = tf.train.latest_checkpoint(ENV_NAME+'-checkpoints')
         last_ep = 0
         if latest_loc is not None:
             self.saver.restore(self.sess, latest_loc)
@@ -167,6 +169,6 @@ for i in range(start_ep, MAX_EPISODES):
 
     if is_test: 
         ddpg.write_reward(ep_reward, i)
-    if i+1 % 100 == 0: # +1 so 0th iter is skipped
+    if (i+1) % 100 == 0: # +1 so 0th iter is skipped
         ddpg.save(i+1)
 
