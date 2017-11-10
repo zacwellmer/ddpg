@@ -3,6 +3,7 @@ from tensorflow.contrib.layers import layer_norm
 import numpy as np
 import gym
 import os
+import sys
 import pickle
 
 from noise import OUNoise
@@ -189,9 +190,10 @@ for i in range(start_ep, MAX_EPISODES):
         ep_reward += r
         if j == MAX_EP_STEPS-1:
             print('Episode:', i, ' Reward: %.3f' % ep_reward, 'Explore: {}'.format(add_noise))
+            sys.stdout.flush()
 
     if is_test: 
         ddpg.write_reward(ep_reward, i)
-    if i+1 % 100 == 0: # +1 so 0th iter is skipped
+    if (i+1) % 100 == 0: # +1 so 0th iter is skipped
         ddpg.save(i+1)
 
