@@ -22,7 +22,7 @@ LEARN_START = 16000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'BipedalWalker-v2'#'Pendulum-v0'
+ENV_NAME = 'Pendulum-v0'#'BipedalWalker-v2'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -30,6 +30,10 @@ def lrelu(x, leak=0.2):
 
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
+        self.rpm_loc = ENV_NAME+'-rpm.pickle'
+        self.checkpoint_loc = ENV_NAME + '-checkpoints/'
+        self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/PER/'.format(ENV_NAME)
+
         self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
@@ -90,7 +94,7 @@ class DDPG(object):
         self.episode_reward = tf.placeholder(tf.float32,name='epsiode_reward')
         tf.summary.scalar('episode_reward', self.episode_reward)
         self.merged = tf.summary.merge_all()
-        self.train_writer = tf.summary.FileWriter('/home/ubuntu/tensorboard/PER/', self.sess.graph)
+        self.train_writer = tf.summary.FileWriter(self.tensorboard_loc, self.sess.graph)
         
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
@@ -136,14 +140,14 @@ class DDPG(object):
         self.train_writer.add_summary(summary, ep_i)
 
     def save(self, i):
-        self.rpm.save('rpm.pickle')
-        self.saver.save(self.sess, 'checkpoints/ddpg', i)
+        self.rpm.save(self.rpm_loc)
+        self.saver.save(self.sess, self.checkpoint_loc, i)
 
     def load(self):
-        if os.path.exists('rpm.pickle'):
-            pickle.load(open('rpm.pickle', 'rb'))
+        if os.path.exists(self.rpm_loc):
+            pickle.load(open(self.rpm_loc, 'rb'))
 
-        latest_loc = tf.train.latest_checkpoint('checkpoints')
+        latest_loc = tf.train.latest_checkpoint(self.checkpoint_loc)
         last_ep = 0
         if latest_loc is not None:
             self.saver.restore(self.sess, latest_loc)
