@@ -7,8 +7,8 @@ from rpm import RPM
 
 #####################  hyper parameters  ####################
 
-MAX_EPISODES = 100
-MAX_EP_STEPS = 500
+MAX_EPISODES = 10000
+MAX_EP_STEPS = 1000
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
@@ -18,7 +18,7 @@ LEARN_START = 10000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'Pendulum-v0'
+ENV_NAME = 'BipedalWalker-v2'#'Pendulum-v0'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
