@@ -2,23 +2,26 @@ import tensorflow as tf
 from tensorflow.contrib.layers import layer_norm
 import numpy as np
 import gym
+import os
+import pickle
+
 from noise import OUNoise
 from rpm import RPM
 
 #####################  hyper parameters  ####################
 
-MAX_EPISODES = 100
-MAX_EP_STEPS = 500
+MAX_EPISODES = 10000
+MAX_EP_STEPS = 1000
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
 MEMORY_CAPACITY = 1000000
-LEARN_START = 10000
+LEARN_START = 16000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'Pendulum-v0'
+ENV_NAME = 'BipedalWalker-v2'#'Pendulum-v0'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -63,6 +66,13 @@ class DDPG(object):
         a_loss = - tf.reduce_mean(q)    # maximize the q
         self.atrain = tf.train.AdamOptimizer(LR_A).minimize(a_loss, var_list=self.ae_params)
 
+        # logging
+        self.episode_reward = tf.placeholder(tf.float32,name='epsiode_reward')
+        tf.summary.scalar('episode_reward', self.episode_reward)
+        self.merged = tf.summary.merge_all()
+        self.train_writer = tf.summary.FileWriter('/home/ubuntu/tensorboard/plain/', self.sess.graph)
+        
+        self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
 
     def choose_action(self, s):
@@ -95,6 +105,26 @@ class DDPG(object):
             #l1 = layer_norm(l1)
             return tf.layers.dense(l1, 1, trainable=trainable)  # Q(s,a)
 
+    def write_reward(self, r, ep_i):
+        summary = self.sess.run(self.merged,
+                                feed_dict={self.episode_reward: r})
+        self.train_writer.add_summary(summary, ep_i)
+
+    def save(self, i):
+        self.rpm.save('rpm.pickle')
+        self.saver.save(self.sess, 'checkpoints/ddpg', i)
+
+    def load(self):
+        if os.path.exists('rpm.pickle'):
+            pickle.load(open('rpm.pickle', 'rb'))
+
+        latest_loc = tf.train.latest_checkpoint('checkpoints')
+        last_ep = 0
+        if latest_loc is not None:
+            self.saver.restore(self.sess, latest_loc)
+            last_ep = int(latest_loc.split('-')[-1])
+        return last_ep
+ 
 ###############################  training  ####################################
 
 env = gym.make(ENV_NAME)
@@ -107,9 +137,11 @@ a_bound = env.action_space.high
 a_low = env.action_space.low
 
 ddpg = DDPG(a_dim, s_dim, a_bound)
+start_ep = ddpg.load()
 ou_noise = OUNoise(a_dim, sigma=0.2)
 var = 2  # control exploration
-for i in range(MAX_EPISODES*10):
+for i in range(start_ep, MAX_EPISODES):
+    is_test = bool(i % 20 == 0)
     s = env.reset()
     ep_reward = 0.0
     for j in range(MAX_EP_STEPS):
@@ -118,12 +150,11 @@ for i in range(MAX_EPISODES*10):
 
         # Add exploration noise
         a = ddpg.choose_action(s)
-        if i < MAX_EPISODES:
-            add_noise = ou_noise.noise()
-            a = a + add_noise    # add randomness to action selection for exploration
+        add_noise = np.zeros(a.shape) if is_test else ou_noise.noise()
+        a = a + add_noise    # add randomness to action selection for exploration
         a = np.clip(a, a_low, a_bound) 
         s_, r, done, info = env.step(a)
-        if i < MAX_EPISODES:
+        if not is_test:
             ddpg.rpm.store([s, a, r, s_])
 
             if ddpg.rpm.size() >= LEARN_START:
@@ -133,3 +164,9 @@ for i in range(MAX_EPISODES*10):
         ep_reward += r
         if j == MAX_EP_STEPS-1:
             print('Episode:', i, ' Reward: %.3f' % ep_reward, 'Explore: {}'.format(add_noise))
+
+    if is_test: 
+        ddpg.write_reward(ep_reward, i)
+    if i+1 % 100 == 0: # +1 so 0th iter is skipped
+        ddpg.save(i+1)
+
