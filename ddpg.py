@@ -89,7 +89,7 @@ class DDPG(object):
         self.episode_reward = tf.placeholder(tf.float32,name='epsiode_reward')
         tf.summary.scalar('episode_reward', self.episode_reward)
         self.merged = tf.summary.merge_all()
-        self.train_writer = tf.summary.FileWriter('~/tensorboard/discontinuous_PER/', self.sess.graph)
+        self.train_writer = tf.summary.FileWriter('/home/ubuntu/tensorboard/discontinuous_PER/', self.sess.graph)
 
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
