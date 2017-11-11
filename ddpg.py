@@ -8,7 +8,7 @@ import pickle
 
 from noise import OUNoise
 from rpm import RPM
-
+from fenv import fastenv
 #####################  hyper parameters  ####################
 
 MAX_EPISODES = 10000
@@ -22,7 +22,7 @@ LEARN_START = 16000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'RoboschoolInvertedPendulumSwingup-v1'#'BipedalWalker-v2'#'Pendulum-v0'
+ENV_NAME = 'RoboschoolHumanoid-v1'#'RoboschoolInvertedPendulumSwingup-v1'#'Pendulum-v0'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -31,7 +31,9 @@ def lrelu(x, leak=0.2):
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
         self.rpm = RPM(MEMORY_CAPACITY)
-        self.sess = tf.Session()
+        config = tf.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.3
+        self.sess = tf.Session(config=config)
         self.a_replace_counter, self.c_replace_counter = 0, 0
 
         self.a_dim, self.s_dim, self.a_bound = a_dim, s_dim, a_bound,
@@ -133,10 +135,12 @@ env = gym.make(ENV_NAME)
 env = env.unwrapped
 env.seed(1)
 
-s_dim = env.observation_space.shape[0]
-a_dim = env.action_space.shape[0]
-a_bound = env.action_space.high
-a_low = env.action_space.low
+env = fastenv(env, 2)
+
+s_dim = env.e.observation_space.shape[0]*2
+a_dim = env.e.action_space.shape[0]
+a_bound = env.e.action_space.high
+a_low = env.e.action_space.low
 
 ddpg = DDPG(a_dim, s_dim, a_bound)
 start_ep = ddpg.load()
