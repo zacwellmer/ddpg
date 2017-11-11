@@ -2,9 +2,9 @@ import tensorflow as tf
 from tensorflow.contrib.layers import layer_norm
 import numpy as np
 import gym
+import roboschool
 import os
 import pickle
-from env_wrapper import fastenv
 
 from noise import OUNoise
 from rpm import RPM
@@ -22,7 +22,7 @@ LEARN_START = 16000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'BipedalWalker-v2'#'Pendulum-v0'
+ENV_NAME = 'RoboschoolInvertedPendulumSwingup-v1'#'BipedalWalker-v2'#'Pendulum-v0'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -92,7 +92,7 @@ class DDPG(object):
         with tf.variable_scope(scope):
             #s = layer_norm(s)
             net = tf.layers.dense(s, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable)
-            #net = layer_norm(net)
+            net = layer_norm(net)
             a = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
@@ -103,7 +103,7 @@ class DDPG(object):
             s_a = tf.concat([s, a], axis=1)
             #s_a = layer_norm(s_a)
             l1 = tf.layers.dense(s_a, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable) 
-            #l1 = layer_norm(l1)
+            l1 = layer_norm(l1)
             return tf.layers.dense(l1, 1, trainable=trainable)  # Q(s,a)
 
     def write_reward(self, r, ep_i):
