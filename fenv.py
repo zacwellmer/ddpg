@@ -1,19 +1,22 @@
 import numpy as np
 
 class fastenv:
-    def __init__(self,e,skipcount):
+    def __init__(self,e):
         self.e = e
         self.stepcount = 0
         self.obs_dim = self.e.observation_space.shape[0]
 
         self.prev_obs = np.zeros(self.obs_dim)
-        self.skipcount = skipcount
+        self.prev2_obs = np.zeros(self.obs_dim)
+
+        self.skipcount = 3
 
     def obg(self,plain_obs):
         # observation generator
         # derivatives of observations extracted here.
         plain_obs = np.zeros(self.obs_dim) if plain_obs is None else plain_obs
-        processed_obs = np.hstack((self.prev_obs, plain_obs))
+        processed_obs = np.hstack((self.prev2_obs, self.prev_obs, plain_obs))
+        self.prev2_obs = self.prev_obs
         self.prev_obs = plain_obs
         return processed_obs
 
@@ -33,6 +36,7 @@ class fastenv:
     def reset(self):
         self.stepcount=0
         self.prev_obs = np.zeros(self.obs_dim)
+        self.prev2_obs = np.zeros(self.obs_dim)
 
         oo = self.e.reset()
         o = self.obg(oo)

@@ -22,7 +22,7 @@ LEARN_START = 16000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'RoboschoolHumanoid-v1'#'RoboschoolInvertedPendulumSwingup-v1'#'Pendulum-v0'
+ENV_NAME = 'RoboschoolInvertedPendulumSwingup-v1'#'RoboschoolInvertedPendulumSwingup-v1'#'Pendulum-v0'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -135,9 +135,9 @@ env = gym.make(ENV_NAME)
 env = env.unwrapped
 env.seed(1)
 
-env = fastenv(env, 2)
+env = fastenv(env)
 
-s_dim = env.e.observation_space.shape[0]*2
+s_dim = env.e.observation_space.shape[0]*3
 a_dim = env.e.action_space.shape[0]
 a_bound = env.e.action_space.high
 a_low = env.e.action_space.low
@@ -145,7 +145,6 @@ a_low = env.e.action_space.low
 ddpg = DDPG(a_dim, s_dim, a_bound)
 start_ep = ddpg.load()
 ou_noise = OUNoise(a_dim, sigma=0.2)
-var = 2  # control exploration
 for i in range(start_ep, MAX_EPISODES):
     is_test = bool(i % 20 == 0)
     s = env.reset()
