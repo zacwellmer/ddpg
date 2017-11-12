@@ -12,9 +12,9 @@ from rpm import RPM
 from fenv import fastenv
 
 #####################  hyper parameters  ####################
-
-MAX_EPISODES = 104
-MAX_EP_STEPS = 1000
+SKIP_FRAMES = 3
+MAX_EPISODES = 100
+MAX_EP_STEPS = INT(1000 / SKIP_FRAMES)
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
@@ -34,7 +34,7 @@ class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
         self.rpm_loc = ENV_NAME+'-rpm.pickle'
         self.checkpoint_loc = ENV_NAME + '-checkpoints/'
-        self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/PER/'.format(ENV_NAME)
+        self.tensorboard_loc = '/home/ubuntu/2{}-tensorboard/PER/'.format(ENV_NAME)
 
         self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
 
@@ -137,10 +137,10 @@ class DDPG(object):
             l1 = layer_norm(l1)
             return tf.layers.dense(l1, 1, trainable=trainable)  # Q(s,a)
 
-    def write_reward(self, r, ep_i):
+    def write_reward(self, r, i):
         summary = self.sess.run(self.merged,
                                 feed_dict={self.episode_reward: r})
-        self.train_writer.add_summary(summary, ep_i)
+        self.train_writer.add_summary(summary, i)
 
     def save(self, i):
         self.rpm.save(self.rpm_loc)
@@ -164,7 +164,7 @@ env = env.unwrapped
 env.seed(1)
 env = fastenv(env)
 
-s_dim = env.e.observation_space.shape[0] * 3 # use 3 frmaes each step
+s_dim = env.e.observation_space.shape[0] * SKIP_FRAMES # use 3 frmaes each step
 a_dim = env.e.action_space.shape[0]
 a_bound = env.e.action_space.high
 a_low = env.e.action_space.low
@@ -172,21 +172,24 @@ a_low = env.e.action_space.low
 ddpg = DDPG(a_dim, s_dim, a_bound)
 start_ep = ddpg.load()
 ou_noise = OUNoise(a_dim, sigma=0.2)
+n_steps = 0
+is_solved = False
 for i in range(start_ep, MAX_EPISODES):
-    is_test = bool(i % 2 == 0)
     s = env.reset()
     ep_reward = 0.0
+    no_noise = bool(i % 2) 
     for j in range(MAX_EP_STEPS):
         if RENDER:
             env.render()
 
         # Add exploration noise
         a = ddpg.choose_action(s)
-        add_noise = np.zeros(a.shape) if is_test else ou_noise.noise()
+        add_noise = np.zeros(a.shape) if (is_solved or no_noise) else ou_noise.noise()
         a = a + add_noise    # add randomness to action selection for exploration
         a = np.clip(a, a_low, a_bound) 
         s_, r, done, info = env.step(a)
-        if not is_test:
+        n_steps += 1
+        if not is_solved:
             default_td_error = 100.0
             ddpg.rpm.store([s, a, r, s_, default_td_error])
 
@@ -198,9 +201,8 @@ for i in range(start_ep, MAX_EPISODES):
         if j == MAX_EP_STEPS-1:
             print('Episode:', i, ' Reward: %.3f' % ep_reward, 'Explore: {}'.format(add_noise))
             sys.stdout.flush()
-
-    if is_test: 
-        ddpg.write_reward(ep_reward, int(i/2))
-    if (i+1) % 100 == 0: # +1 so 0th iter is skipped
-        ddpg.save(int(i/2))
+    if ep_reward >=950:
+        is_solved = True
+    if True:#is_test: 
+        ddpg.write_reward(ep_reward, n_steps)
 
