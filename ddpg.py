@@ -33,7 +33,7 @@ class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
         self.rpm_loc = ENV_NAME + '-rpm.pickle'
         self.checkpoints_loc = ENV_NAME + '-checkpoints'
-        self.tensorboard_loc = ENV_NAME + '-tensorboard'
+        self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/discontinuous_PER'.format(ENV_NAME)
 
         self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
         self.sess = tf.Session()
