@@ -2,27 +2,29 @@ import tensorflow as tf
 from tensorflow.contrib.layers import layer_norm
 import numpy as np
 import gym
+import roboschool
 import os
 import sys
 import pickle
 
 from noise import OUNoise
 from rpm import RPM
+from fenv import fastenv
 
 #####################  hyper parameters  ####################
 
-MAX_EPISODES = 10000
+MAX_EPISODES = 104
 MAX_EP_STEPS = 1000
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
-MEMORY_CAPACITY = 1000000
-LEARN_START = 16000
+MEMORY_CAPACITY = 10000
+LEARN_START = 1000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'Pendulum-v0'#'BipedalWalker-v2'
+ENV_NAME = 'RoboschoolInvertedPendulum-v1'#'Pendulum-v0'#'BipedalWalker-v2'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -35,6 +37,7 @@ class DDPG(object):
         self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/PER/'.format(ENV_NAME)
 
         self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
+
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
 
@@ -120,7 +123,7 @@ class DDPG(object):
         with tf.variable_scope(scope):
             #s = layer_norm(s)
             net = tf.layers.dense(s, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable)
-            #net = layer_norm(net)
+            net = layer_norm(net)
             a = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
@@ -131,7 +134,7 @@ class DDPG(object):
             s_a = tf.concat([s, a], axis=1)
             #s_a = layer_norm(s_a)
             l1 = tf.layers.dense(s_a, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable) 
-            #l1 = layer_norm(l1)
+            l1 = layer_norm(l1)
             return tf.layers.dense(l1, 1, trainable=trainable)  # Q(s,a)
 
     def write_reward(self, r, ep_i):
@@ -159,18 +162,18 @@ class DDPG(object):
 env = gym.make(ENV_NAME)
 env = env.unwrapped
 env.seed(1)
+env = fastenv(env)
 
-s_dim = env.observation_space.shape[0]
-a_dim = env.action_space.shape[0]
-a_bound = env.action_space.high
-a_low = env.action_space.low
+s_dim = env.e.observation_space.shape[0] * 3 # use 3 frmaes each step
+a_dim = env.e.action_space.shape[0]
+a_bound = env.e.action_space.high
+a_low = env.e.action_space.low
 
 ddpg = DDPG(a_dim, s_dim, a_bound)
 start_ep = ddpg.load()
 ou_noise = OUNoise(a_dim, sigma=0.2)
-var = 2  # control exploration
 for i in range(start_ep, MAX_EPISODES):
-    is_test = bool(i % 20 == 0)
+    is_test = bool(i % 2 == 0)
     s = env.reset()
     ep_reward = 0.0
     for j in range(MAX_EP_STEPS):
@@ -197,7 +200,7 @@ for i in range(start_ep, MAX_EPISODES):
             sys.stdout.flush()
 
     if is_test: 
-        ddpg.write_reward(ep_reward, i)
+        ddpg.write_reward(ep_reward, int(i/2))
     if (i+1) % 100 == 0: # +1 so 0th iter is skipped
-        ddpg.save(i+1)
+        ddpg.save(int(i/2))
 
