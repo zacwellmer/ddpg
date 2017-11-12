@@ -2,26 +2,28 @@ import tensorflow as tf
 from tensorflow.contrib.layers import layer_norm
 import numpy as np
 import gym
+import roboschool
 import os
 import pickle
 
 from noise import OUNoise
 from rpm import RPM
+from fenv import fastenv
 
 #####################  hyper parameters  ####################
 
-MAX_EPISODES = 10000
+MAX_EPISODES = 104
 MAX_EP_STEPS = 1000
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
-MEMORY_CAPACITY = 1000000
-LEARN_START = 16000
+MEMORY_CAPACITY = 10000
+LEARN_START = 1000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'BipedalWalker-v2'
+ENV_NAME = 'RoboschoolInvertedPendulum-v1'#'BipedalWalker-v2'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -29,6 +31,10 @@ def lrelu(x, leak=0.2):
 
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
+        self.rpm_loc = ENV_NAME + '-rpm.pickle'
+        self.checkpoints_loc = ENV_NAME + '-checkpoints'
+        self.tensorboard_loc = ENV_NAME + '-tensorboard'
+
         self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
@@ -89,7 +95,7 @@ class DDPG(object):
         self.episode_reward = tf.placeholder(tf.float32,name='epsiode_reward')
         tf.summary.scalar('episode_reward', self.episode_reward)
         self.merged = tf.summary.merge_all()
-        self.train_writer = tf.summary.FileWriter('/home/ubuntu/tensorboard/discontinuous_PER/', self.sess.graph)
+        self.train_writer = tf.summary.FileWriter(self.tensorboard_loc, self.sess.graph)
 
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
@@ -115,7 +121,7 @@ class DDPG(object):
         with tf.variable_scope(scope):
             #s = layer_norm(s)
             net = tf.layers.dense(s, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable)
-            #net = layer_norm(net)
+            net = layer_norm(net)
             a = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
@@ -126,7 +132,7 @@ class DDPG(object):
             s_a = tf.concat([s, a], axis=1)
             #s_a = layer_norm(s_a)
             l1 = tf.layers.dense(s_a, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable) 
-            #l1 = layer_norm(l1)
+            l1 = layer_norm(l1)
             return tf.layers.dense(l1, 1, trainable=trainable)  # Q(s,a)
 
     def write_reward(self, r, ep_i):
@@ -135,14 +141,14 @@ class DDPG(object):
         self.train_writer.add_summary(summary, ep_i)
 
     def save(self, i):
-        self.rpm.save('rpm.pickle')
-        self.saver.save(self.sess, 'checkpoints/ddpg', i)
+        self.rpm.save(self.rpm_loc)
+        self.saver.save(self.sess, self.checkpoints_loc, i)
 
     def load(self):
-        if os.path.exists('rpm.pickle'):
-            pickle.load(open('rpm.pickle', 'rb'))
+        if os.path.exists(self.rpm_loc):
+            pickle.load(open(self.rpm_loc, 'rb'))
 
-        latest_loc = tf.train.latest_checkpoint('checkpoints')
+        latest_loc = tf.train.latest_checkpoint(self.checkpoints_loc)
         last_ep = 0
         if latest_loc is not None:
             self.saver.restore(self.sess, latest_loc)
@@ -153,18 +159,18 @@ class DDPG(object):
 env = gym.make(ENV_NAME)
 env = env.unwrapped
 env.seed(1)
+env = fastenv(env)
 
-s_dim = env.observation_space.shape[0]
-a_dim = env.action_space.shape[0]
-a_bound = env.action_space.high
-a_low = env.action_space.low
+s_dim = env.e.observation_space.shape[0] * 3
+a_dim = env.e.action_space.shape[0]
+a_bound = env.e.action_space.high
+a_low = env.e.action_space.low
 
 ddpg = DDPG(a_dim, s_dim, a_bound)
 start_ep = ddpg.load()
 ou_noise = OUNoise(a_dim, sigma=0.2)
-var = 2  # control exploration
 for i in range(start_ep, MAX_EPISODES):
-    is_test = bool(i % 20 == 0)
+    is_test = bool(i % 2 == 0)
     s = env.reset()
     ep_reward = 0.0
     for j in range(MAX_EP_STEPS):
@@ -189,6 +195,6 @@ for i in range(start_ep, MAX_EPISODES):
         if j == MAX_EP_STEPS-1:
             print('Episode:', i, ' Reward: %.3f' % ep_reward, 'Explore: {}'.format(add_noise))
     if is_test:
-        ddpg.write_reward(ep_reward, i)
-    if i % 100 == 0:
-        ddpg.save(i)
+        ddpg.write_reward(ep_reward, int(i/2))
+    if (i+1) % 100 == 0:
+        ddpg.save(int(i/2))
