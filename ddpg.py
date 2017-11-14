@@ -14,7 +14,7 @@ from fenv import fastenv
 #####################  hyper parameters  ####################
 SKIP_FRAMES = 3
 MAX_EPISODES = 100
-MAX_EP_STEPS = INT(1000 / SKIP_FRAMES)
+MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
@@ -204,5 +204,5 @@ for i in range(start_ep, MAX_EPISODES):
     if ep_reward >=950:
         is_solved = True
     if True:#is_test: 
-        ddpg.write_reward(ep_reward, n_steps)
+        ddpg.write_reward(ep_reward, i)
 
