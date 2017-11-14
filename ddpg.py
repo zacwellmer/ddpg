@@ -10,19 +10,19 @@ from noise import OUNoise
 from rpm import RPM
 from fenv import fastenv
 #####################  hyper parameters  ####################
-
-MAX_EPISODES = 10000
-MAX_EP_STEPS = 1000
+SKIP_FRAMES = 3
+MAX_EPISODES = 1
+MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
-MEMORY_CAPACITY = 1000000
-LEARN_START = 16000
+MEMORY_CAPACITY = 10000
+LEARN_START = 1000
 BATCH_SIZE = 64
 
 RENDER = False
-ENV_NAME = 'RoboschoolHumanoid-v1'#'RoboschoolInvertedPendulumSwingup-v1'#'Pendulum-v0'
+ENV_NAME = 'RoboschoolInvertedPendulum-v1'#'RoboschoolInvertedPendulumSwingup-v1'#'Pendulum-v0'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -30,10 +30,12 @@ def lrelu(x, leak=0.2):
 
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
+        self.rpm_loc = '2{}-rpm.pickle'.format(ENV_NAME)
+        self.checkpoints_loc = '2{}-checkpoints/'.format(ENV_NAME)
+        self.tensorboard_loc = '/home/ubuntu/2{}-tensorboard/plain/'.format(ENV_NAME)
+
         self.rpm = RPM(MEMORY_CAPACITY)
-        config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.3
-        self.sess = tf.Session(config=config)
+        self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
 
         self.a_dim, self.s_dim, self.a_bound = a_dim, s_dim, a_bound,
@@ -73,7 +75,7 @@ class DDPG(object):
         self.episode_reward = tf.placeholder(tf.float32,name='epsiode_reward')
         tf.summary.scalar('episode_reward', self.episode_reward)
         self.merged = tf.summary.merge_all()
-        self.train_writer = tf.summary.FileWriter('/home/ubuntu/{}-tensorboard/plain/'.format(ENV_NAME), self.sess.graph)
+        self.train_writer = tf.summary.FileWriter(self.tensorboard_loc, self.sess.graph)
         
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
@@ -115,14 +117,14 @@ class DDPG(object):
 
     def save(self, i):
         
-        self.rpm.save(ENV_NAME+'-rpm.pickle')
-        self.saver.save(self.sess, ENV_NAME+'-checkpoints/ddpg', i)
+        self.rpm.save(self.rpm_loc)
+        self.saver.save(self.sess, self.checkpoints_loc, i)
 
     def load(self):
-        if os.path.exists(ENV_NAME+'-rpm.pickle'):
-            pickle.load(open(ENV_NAME+'-rpm.pickle', 'rb'))
+        if os.path.exists(self.rpm_loc):
+            pickle.load(open(self.rpm_loc, 'rb'))
 
-        latest_loc = tf.train.latest_checkpoint(ENV_NAME+'-checkpoints')
+        latest_loc = tf.train.latest_checkpoint(self.checkpoints_loc)
         last_ep = 0
         if latest_loc is not None:
             self.saver.restore(self.sess, latest_loc)
@@ -135,9 +137,10 @@ env = gym.make(ENV_NAME)
 env = env.unwrapped
 env.seed(1)
 
-env = fastenv(env, 2)
+env = gym.wrappers.Monitor(env, 'monitor-env/', False)
+env = fastenv(env)
 
-s_dim = env.e.observation_space.shape[0]*2
+s_dim = env.e.observation_space.shape[0] * SKIP_FRAMES
 a_dim = env.e.action_space.shape[0]
 a_bound = env.e.action_space.high
 a_low = env.e.action_space.low
@@ -145,22 +148,25 @@ a_low = env.e.action_space.low
 ddpg = DDPG(a_dim, s_dim, a_bound)
 start_ep = ddpg.load()
 ou_noise = OUNoise(a_dim, sigma=0.2)
-var = 2  # control exploration
+
+n_steps = 0
+is_finished = False
 for i in range(start_ep, MAX_EPISODES):
-    is_test = bool(i % 20 == 0)
     s = env.reset()
     ep_reward = 0.0
+    no_noise = bool(i%2)
     for j in range(MAX_EP_STEPS):
         if RENDER:
             env.render()
 
         # Add exploration noise
         a = ddpg.choose_action(s)
-        add_noise = np.zeros(a.shape) if is_test else ou_noise.noise()
+        add_noise = np.zeros(a.shape) if (is_finished or no_noise) else ou_noise.noise()
         a = a + add_noise    # add randomness to action selection for exploration
         a = np.clip(a, a_low, a_bound) 
         s_, r, done, info = env.step(a)
-        if not is_test:
+        n_steps += 1
+        if not is_finished:
             ddpg.rpm.store([s, a, r, s_])
 
             if ddpg.rpm.size() >= LEARN_START:
@@ -170,9 +176,8 @@ for i in range(start_ep, MAX_EPISODES):
         ep_reward += r
         if j == MAX_EP_STEPS-1:
             print('Episode:', i, ' Reward: %.3f' % ep_reward, 'Explore: {}'.format(add_noise))
-
-    if is_test: 
-        ddpg.write_reward(ep_reward, i)
-    if (i+1) % 100 == 0: # +1 so 0th iter is skipped
-        ddpg.save(i+1)
+    if ep_reward >= 950:
+        is_finished=True
+    if True:#is_test: 
+        pass#ddpg.write_reward(ep_reward, i)
 
