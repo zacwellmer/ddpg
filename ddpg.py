@@ -4,6 +4,7 @@ import numpy as np
 import gym
 import roboschool
 import os
+import sys
 import pickle
 
 from noise import OUNoise
@@ -11,19 +12,20 @@ from rpm import RPM
 from fenv import fastenv
 
 #####################  hyper parameters  ####################
-
-MAX_EPISODES = 104
-MAX_EP_STEPS = 1000
+SKIP_FRAMES = 1
+MAX_EPISODES = 5000
+MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
+NUM_RUNS = 50
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
 MEMORY_CAPACITY = 10000
-LEARN_START = 1000
-BATCH_SIZE = 64
+BATCH_SIZE = 32
+LEARN_START = int(1 + MEMORY_CAPACITY / BATCH_SIZE) * 2
 
 RENDER = False
-ENV_NAME = 'RoboschoolInvertedPendulum-v1'#'BipedalWalker-v2'
+ENV_NAME = 'RoboschoolInvertedPendulum-v1'
 
 ###############################  DDPG  ####################################
 def lrelu(x, leak=0.2):
@@ -32,10 +34,11 @@ def lrelu(x, leak=0.2):
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
         self.rpm_loc = ENV_NAME + '-rpm.pickle'
-        self.checkpoints_loc = ENV_NAME + '-checkpoints'
+        self.checkpoint_loc = ENV_NAME + '-checkpoints'
         self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/discontinuous_PER'.format(ENV_NAME)
 
         self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
+
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
 
@@ -67,29 +70,12 @@ class DDPG(object):
         q_target = self.R + GAMMA * q_
         # in the feed_dic for the td_error, the self.a should change to actions in memory
         self.w_is = tf.placeholder(tf.float32, shape=[None, 1], name='weighted_is')
-        weighted_is = tf.unstack(self.w_is, num=BATCH_SIZE)
+        self.td_errors = tf.squared_difference(q_target, q)
+        closs = tf.reduce_mean(self.w_is * self.td_errors)
+        self.ctrain = tf.train.AdamOptimizer(LR_C).minimize(closs, var_list=self.ce_params)
 
-        self.td_errors = (q_target - q)**2
-        self.td_errors = tf.unstack(self.td_errors, num=BATCH_SIZE)
-
-        c_opt = tf.train.AdamOptimizer(LR_C)
-        c_grads = [tf.gradients(td_i, self.ce_params) for td_i in self.td_errors]
-        c_grads = list(map(lambda w_is_i, c_g: [w_is_i * c_g_i for c_g_i in c_g], weighted_is, c_grads))
-        c_grads_agg = [0.0]*len(c_grads[0])
-        for c_grad_i in c_grads:
-            c_grads_agg = [c_grad_i[j]/BATCH_SIZE + c_grads_agg[j] for j in range(len(c_grads_agg))]
-        self.ctrain = c_opt.apply_gradients(zip(c_grads_agg, self.ce_params))
-
-        a_loss = - q    # maximize the q
-        a_loss = tf.unstack(a_loss, num=BATCH_SIZE)
-
-        a_opt = tf.train.AdamOptimizer(LR_A)
-        a_grads = [tf.gradients(a_loss_i, self.ae_params) for a_loss_i in a_loss]
-        a_grads = list(map(lambda w_is_i, a_g: [w_is_i * a_g_i for a_g_i in a_g], weighted_is, a_grads))
-        a_grads_agg = [0.0]*len(a_grads[0])
-        for a_grad_i in a_grads:
-            a_grads_agg = [a_grad_i[j]/BATCH_SIZE + a_grads_agg[j] for j in range(len(a_grads_agg))]
-        self.atrain = a_opt.apply_gradients(zip(a_grads_agg, self.ae_params))
+        a_loss = - tf.reduce_mean(self.w_is * q)    # maximize the q
+        self.atrain = tf.train.AdamOptimizer(LR_A).minimize(a_loss, var_list=self.ae_params)
 
         # logging
         self.episode_reward = tf.placeholder(tf.float32,name='epsiode_reward')
@@ -106,7 +92,6 @@ class DDPG(object):
     def learn(self, step_i):
         # soft target replacement
         self.sess.run(self.soft_replace)
-
         sample, w_is, e_id = self.rpm.sample(step_i)
         [bs, ba, br, bs_] = sample
         self.sess.run(self.atrain, {self.S: bs, self.w_is: np.reshape(w_is, [-1, 1])})
@@ -125,76 +110,107 @@ class DDPG(object):
             a = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
-    def _build_c(self, s, a, scope, trainable):        
+    def _build_c(self, s, a, scope, trainable):
         hidden_units = 60
         with tf.variable_scope(scope):
             #s = layer_norm(s)
             s_a = tf.concat([s, a], axis=1)
             #s_a = layer_norm(s_a)
-            l1 = tf.layers.dense(s_a, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable) 
+            l1 = tf.layers.dense(s_a, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable)
             l1 = layer_norm(l1)
             return tf.layers.dense(l1, 1, trainable=trainable)  # Q(s,a)
 
     def write_reward(self, r, ep_i):
-        summary = self.sess.run(self.merged, 
+        summary = self.sess.run(self.merged,
                                 feed_dict={self.episode_reward: r})
         self.train_writer.add_summary(summary, ep_i)
 
     def save(self, i):
+
         self.rpm.save(self.rpm_loc)
-        self.saver.save(self.sess, self.checkpoints_loc, i)
+        self.saver.save(self.sess, self.checkpoint_loc, i)
 
     def load(self):
         if os.path.exists(self.rpm_loc):
             pickle.load(open(self.rpm_loc, 'rb'))
 
-        latest_loc = tf.train.latest_checkpoint(self.checkpoints_loc)
+        latest_loc = tf.train.latest_checkpoint(self.checkpoint_loc)
         last_ep = 0
         if latest_loc is not None:
             self.saver.restore(self.sess, latest_loc)
             last_ep = int(latest_loc.split('-')[-1])
         return last_ep
+
 ###############################  training  ####################################
-
-env = gym.make(ENV_NAME)
-env = env.unwrapped
-env.seed(1)
-env = fastenv(env)
-
-s_dim = env.e.observation_space.shape[0] * 3
-a_dim = env.e.action_space.shape[0]
-a_bound = env.e.action_space.high
-a_low = env.e.action_space.low
-
-ddpg = DDPG(a_dim, s_dim, a_bound)
-start_ep = ddpg.load()
-ou_noise = OUNoise(a_dim, sigma=0.2)
-for i in range(start_ep, MAX_EPISODES):
-    is_test = bool(i % 2 == 0)
+def run_episode(env, agent, noise_source):
+    global N_STEPS
     s = env.reset()
     ep_reward = 0.0
+
     for j in range(MAX_EP_STEPS):
         if RENDER:
             env.render()
 
         # Add exploration noise
-        a = ddpg.choose_action(s)
-        add_noise = np.zeros(a.shape) if is_test else ou_noise.noise()
+        a = agent.choose_action(s)
+        add_noise = np.zeros(a.shape) if noise_source is None else noise_source.noise()
         a = a + add_noise    # add randomness to action selection for exploration
-        a = np.clip(a, a_low, a_bound) 
+        a = np.clip(a, a_low, a_bound)
         s_, r, done, info = env.step(a)
-        if not is_test:
+        if noise_source is not None: # if it's None we are testing
+            N_STEPS += 1 # only increment on training
             default_td_error = 100.0
-            ddpg.rpm.store([s, a, r, s_, default_td_error])
+            agent.rpm.store([s, a, r, s_, default_td_error])
 
-            if ddpg.rpm.record_size >= LEARN_START:
-                ddpg.learn(j)
-
+            if agent.rpm.record_size >= LEARN_START:
+                agent.learn(N_STEPS)
         s = s_
         ep_reward += r
-        if j == MAX_EP_STEPS-1:
-            print('Episode:', i, ' Reward: %.3f' % ep_reward, 'Explore: {}'.format(add_noise))
-    if is_test:
-        ddpg.write_reward(ep_reward, int(i/2))
-    if (i+1) % 100 == 0:
-        ddpg.save(int(i/2))
+
+        if done:
+            break
+
+    return ep_reward
+
+def inverted_pendulum_test(env, agent, ep_i):
+    iterations_to_pass = 100
+    min_reward = 950.0
+
+    rewards = []
+    for j in range(iterations_to_pass):
+        ep_reward = run_episode(env, agent, noise_source=None)
+        rewards.append(ep_reward)
+        print('test: {} reward: {}'.format(j, ep_reward))
+        if ep_reward < min_reward:
+            return False
+    for k, r in enumerate(rewards): # if test pass write rewards
+        agent.write_reward(r, ep_i+k)
+    return True
+
+for seed_i in range(NUM_RUNS):
+    tf.reset_default_graph()
+    N_STEPS = 0
+
+    env = gym.make(ENV_NAME)
+    env = env.unwrapped
+    env.seed(seed_i)
+
+    env = fastenv(env, SKIP_FRAMES)
+    s_dim = env.s_dim
+
+    a_dim = env.a_dim
+    a_bound = env.e.action_space.high
+    a_low = env.e.action_space.low
+
+    ddpg = DDPG(a_dim, s_dim, a_bound)
+    start_ep = ddpg.load()
+    ou_noise = OUNoise(a_dim, sigma=0.2)
+
+    for i in range(start_ep, MAX_EPISODES):
+        print('----------------epoch: {} ----------------'.format(seed_i))
+        ep_reward = run_episode(env, agent=ddpg, noise_source=ou_noise)
+        print('Episode:', i, ' Reward: %.3f' % ep_reward)
+        ddpg.write_reward(ep_reward, i)
+        if inverted_pendulum_test(env, ddpg, i):
+            break
+        
