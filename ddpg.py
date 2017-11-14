@@ -137,10 +137,9 @@ env = gym.make(ENV_NAME)
 env = env.unwrapped
 env.seed(1)
 
-env = gym.wrappers.Monitor(env, 'monitor-env/', False)
+s_dim = env.e.observation_space.shape[0] * SKIP_FRAMES
 env = fastenv(env)
 
-s_dim = env.e.observation_space.shape[0] * SKIP_FRAMES
 a_dim = env.e.action_space.shape[0]
 a_bound = env.e.action_space.high
 a_low = env.e.action_space.low
