@@ -11,8 +11,9 @@ from rpm import RPM
 from fenv import fastenv
 #####################  hyper parameters  ####################
 SKIP_FRAMES = 1
-MAX_EPISODES = 1
+MAX_EPISODES = 1000
 MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
+NUM_RUNS = 50
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
@@ -146,15 +147,16 @@ def run_episode(env, agent, noise_source):
         a = a + add_noise    # add randomness to action selection for exploration
         a = np.clip(a, a_low, a_bound)
         s_, r, done, info = env.step(a)
-        n_steps += 1
-        if not is_finished:
+        if noise_source is not None: # if it's None we are testing
             agent.rpm.store([s, a, r, s_])
 
             if agent.rpm.size() >= LEARN_START:
                 agent.learn()
-
         s = s_
         ep_reward += r
+
+        if done:
+            break
 
     print('Episode:', i, ' Reward: %.3f' % ep_reward)
     agent.write_reward(ep_reward, i)
@@ -165,33 +167,34 @@ def inverted_pendulum_test(env, agent, ep_i):
     min_reward = 950.0
 
     rewards = []
-    while iterations_to_pass > 0:
+    for j in range(iterations_to_pass):
         ep_reward = run_episode(env, agent, noise_source=None)
+        rewards.append(ep_reward)
+        print('test: {} reward: {}'.format(j, ep_reward))
         if ep_reward < min_reward:
             return False
-        rewards.append(ep_reward)
-        iterations_to_pass -= 1
     for k, r in enumerate(rewards): # if test pass write rewards
-        agent.write_reward(r, ep_i+k)
+        agent.write_reward(r, ep_i+j)
     return True
 
-env = gym.make(ENV_NAME)
-env = env.unwrapped
-env.seed(1)
+for seed_i in range(NUM_RUNS):
+    env = gym.make(ENV_NAME)
+    env = env.unwrapped
+    env.seed(seed_i)
 
-s_dim = env.e.observation_space.shape[0] * SKIP_FRAMES
-env = fastenv(env)
+    env = fastenv(env, SKIP_FRAMES)
+    s_dim = env.s_dim
 
-a_dim = env.e.action_space.shape[0]
-a_bound = env.e.action_space.high
-a_low = env.e.action_space.low
+    a_dim = env.a_dim
+    a_bound = env.e.action_space.high
+    a_low = env.e.action_space.low
 
-ddpg = DDPG(a_dim, s_dim, a_bound)
-start_ep = ddpg.load()
-ou_noise = OUNoise(a_dim, sigma=0.2)
+    ddpg = DDPG(a_dim, s_dim, a_bound)
+    start_ep = ddpg.load()
+    ou_noise = OUNoise(a_dim, sigma=0.2)
 
-n_steps = 0
-is_finished = False
-for i in range(start_ep, MAX_EPISODES):
-    ep_reward = run_episode(env, agent=ddpg, noise_source=ou_noise)
-    inverted_pendulum_test(env, ddpg)
+    for i in range(start_ep, MAX_EPISODES):
+        ep_reward = run_episode(env, agent=ddpg, noise_source=ou_noise)
+        if inverted_pendulum_test(env, ddpg, i):
+            break
+        
