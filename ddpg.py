@@ -11,7 +11,7 @@ from rpm import RPM
 from fenv import fastenv
 #####################  hyper parameters  ####################
 SKIP_FRAMES = 1
-MAX_EPISODES = 1000
+MAX_EPISODES = 5000
 MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
 NUM_RUNS = 50
 LR_A = 0.0001    # learning rate for actor
@@ -19,8 +19,8 @@ LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
 MEMORY_CAPACITY = 10000
-LEARN_START = 1000
-BATCH_SIZE = 64
+BATCH_SIZE = 32
+LEARN_START = int(1 + MEMORY_CAPACITY / BATCH_SIZE) * 2
 
 RENDER = False
 ENV_NAME = 'RoboschoolInvertedPendulum-v1'
@@ -158,8 +158,6 @@ def run_episode(env, agent, noise_source):
         if done:
             break
 
-    print('Episode:', i, ' Reward: %.3f' % ep_reward)
-    agent.write_reward(ep_reward, i)
     return ep_reward
 
 def inverted_pendulum_test(env, agent, ep_i):
@@ -174,7 +172,7 @@ def inverted_pendulum_test(env, agent, ep_i):
         if ep_reward < min_reward:
             return False
     for k, r in enumerate(rewards): # if test pass write rewards
-        agent.write_reward(r, ep_i+j)
+        agent.write_reward(r, ep_i+k)
     return True
 
 for seed_i in range(NUM_RUNS):
@@ -195,7 +193,10 @@ for seed_i in range(NUM_RUNS):
     ou_noise = OUNoise(a_dim, sigma=0.2)
 
     for i in range(start_ep, MAX_EPISODES):
+        print('----------------epoch: {} ----------------'.format(seed_i))
         ep_reward = run_episode(env, agent=ddpg, noise_source=ou_noise)
+        print('Episode:', i, ' Reward: %.3f' % ep_reward)
+        ddpg.write_reward(ep_reward, i)
         if inverted_pendulum_test(env, ddpg, i):
             break
         
