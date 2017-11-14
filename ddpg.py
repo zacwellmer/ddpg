@@ -178,6 +178,7 @@ def inverted_pendulum_test(env, agent, ep_i):
     return True
 
 for seed_i in range(NUM_RUNS):
+    tf.reset_default_graph()
     env = gym.make(ENV_NAME)
     env = env.unwrapped
     env.seed(seed_i)
