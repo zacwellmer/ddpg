@@ -1,24 +1,24 @@
 import numpy as np
+from collections import deque
 
 class fastenv:
-    def __init__(self,e):
+    def __init__(self, e, skipcount):
         self.e = e
         self.stepcount = 0
         self.obs_dim = self.e.observation_space.shape[0]
+        self.skipcount = skipcount
+        self.initialize_obs()
+        self.a_dim = self.e.action_space.shape[0]
+        self.s_dim = self.e.observation_space.shape[0] * self.skipcount
 
-        self.prev_obs = np.zeros(self.obs_dim)
-        self.prev2_obs = np.zeros(self.obs_dim)
-
-        self.skipcount = 3
+    def initialize_obs(self):
+        self.prev_obs = deque(tuple(np.zeros((self.skipcount, self.obs_dim))), self.skipcount)
 
     def obg(self,plain_obs):
         # observation generator
-        # derivatives of observations extracted here.
         plain_obs = np.zeros(self.obs_dim) if plain_obs is None else plain_obs
-        processed_obs = np.hstack((self.prev2_obs, self.prev_obs, plain_obs))
-        self.prev2_obs = self.prev_obs
-        self.prev_obs = plain_obs
-        return processed_obs
+        self.prev_obs.append(plain_obs)
+        return np.array(self.prev_obs).flatten()
 
     def step(self,action):
         sr = 0
@@ -27,17 +27,13 @@ class fastenv:
             oo,r,d,i = self.e.step(action)
             o = self.obg(oo)
             sr += r
-
             if d == True:
                 break
-
         return o,sr,d,i
 
     def reset(self):
         self.stepcount=0
-        self.prev_obs = np.zeros(self.obs_dim)
-        self.prev2_obs = np.zeros(self.obs_dim)
-
+        self.initialize_obs()
         oo = self.e.reset()
         o = self.obg(oo)
         return o
