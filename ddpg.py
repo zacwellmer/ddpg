@@ -15,18 +15,18 @@ from fenv import fastenv
 SKIP_FRAMES = 3
 MAX_EPISODES = 1000000
 MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
-NUM_RUNS = 1
+NUM_RUNS = 5
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
-GAMMA = 0.99     # reward discount
+GAMMA = 0.995     # reward discount
 TAU = 0.01      # soft replacement
 MEMORY_CAPACITY = 1000000
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 LEARN_START = int(1 + MEMORY_CAPACITY / BATCH_SIZE) * 2
 
 RENDER = False
 ENV_NAME = 'RoboschoolHalfCheetah-v1'
-TEST_REQS = {'RoboschoolHalfCheetah-v1': 4500.0, 
+TEST_REQS = {'RoboschoolHalfCheetah-v1': 4500.0,
              'RoboschoolInvertedPendulum-v1': 950.0}
 ###############################  DDPG  ####################################
 class DDPG(object):
@@ -99,23 +99,34 @@ class DDPG(object):
         if np.random.random() < 1.0/1.0e4: self.rpm.rebalance() # don't rebalanceoften
 
     def _build_a(self, s, scope, trainable):
-        hidden_units = 60
+        hidden_units1 = 400
+        hidden_units2 = 300
         with tf.variable_scope(scope):
             #s = layer_norm(s)
-            net = tf.layers.dense(s, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable)
-            net = layer_norm(net)
-            a = tf.layers.dense(net, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
+            l1 = tf.layers.dense(s, hidden_units1, activation=tf.nn.relu, name='l1', trainable=trainable)
+            l1 = layer_norm(l1)
+            l2 = tf.layers.dense(l1, hidden_units2, activation=tf.nn.relu, name='l2', trainable=trainable)
+            l2 = layer_norm(l2)
+            a = tf.layers.dense(l2, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
     def _build_c(self, s, a, scope, trainable):
-        hidden_units = 60
+        hidden_units1 = 400
+        hidden_units2 = 300
         with tf.variable_scope(scope):
-            #s = layer_norm(s)
             s_a = tf.concat([s, a], axis=1)
             #s_a = layer_norm(s_a)
-            l1 = tf.layers.dense(s_a, hidden_units, activation=tf.nn.relu, name='l1', trainable=trainable)
+            l1 = tf.layers.dense(s_a, hidden_units1, activation=tf.nn.relu,
+                                name='l1', trainable=trainable,
+                                kernel_regularizer=tf.contrib.slim.l2_regularizer(0.01))
             l1 = layer_norm(l1)
-            return tf.layers.dense(l1, 1, trainable=trainable)  # Q(s,a)
+            l2 = tf.layers.dense(l1, hidden_units2, activation=tf.nn.relu,
+                                name='l2', trainable=trainable,
+                                kernel_regularizer=tf.contrib.slim.l2_regularizer(0.01))
+            l2 = layer_norm(l2)
+            # Q(s,a)
+            return tf.layers.dense(l2, 1, trainable=trainable,
+                                kernel_regularizer=tf.contrib.slim.l2_regularizer(0.01))
 
     def write_reward(self, r, ep_i):
         summary = self.sess.run(self.merged,
@@ -173,16 +184,16 @@ def inverted_pendulum_test(env, agent, ep_i):
     iterations_to_pass = 100
     min_reward = TEST_REQS[ENV_NAME]
 
-    rewards = []
+    did_pass = True
     for j in range(iterations_to_pass):
         ep_reward = run_episode(env, agent, noise_source=None)
-        rewards.append(ep_reward)
         print('test: {} reward: {}'.format(j, ep_reward))
         if ep_reward < min_reward:
-            return False
-    for k, r in enumerate(rewards): # if test pass write rewards
-        agent.write_reward(r, ep_i+k)
-    return True
+            did_pass = False
+            break
+    # only writing to tensorboard actions w/ no noise
+    agent.write_reward(ep_reward, ep_i)
+    return did_pass
 
 for seed_i in range(NUM_RUNS):
     tf.reset_default_graph()
@@ -207,7 +218,7 @@ for seed_i in range(NUM_RUNS):
         print('----------------epoch: {} ----------------'.format(seed_i))
         ep_reward = run_episode(env, agent=ddpg, noise_source=ou_noise)
         print('Episode:', i, ' Reward: %.3f' % ep_reward)
-        ddpg.write_reward(ep_reward, i)
         if inverted_pendulum_test(env, ddpg, i):
             break
-        
+        if (i+1) % 10000 == 0:
+            ddpg.save(i)
