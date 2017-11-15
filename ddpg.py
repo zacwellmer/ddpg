@@ -95,11 +95,11 @@ class DDPG(object):
         hidden_units2 = 300
         with tf.variable_scope(scope):
             #s = layer_norm(s)
-            net1 = tf.layers.dense(s, hidden_units1, activation=tf.nn.relu, name='l1', trainable=trainable)
-            net1 = layer_norm(net1)
-            net2 = tf.layers.dense(net1, hidden_units2, activation=tf.nn.relu, name='l2', trainable=trainable)
-            net2 = layer_norm(net2)
-            a = tf.layers.dense(ne2, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
+            l1 = tf.layers.dense(s, hidden_units1, activation=tf.nn.relu, name='l1', trainable=trainable)
+            l1 = layer_norm(l1)
+            l2 = tf.layers.dense(l1, hidden_units2, activation=tf.nn.relu, name='l2', trainable=trainable)
+            l2 = layer_norm(l2)
+            a = tf.layers.dense(l2, self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
     def _build_c(self, s, a, scope, trainable):
@@ -110,15 +110,15 @@ class DDPG(object):
             #s_a = layer_norm(s_a)
             l1 = tf.layers.dense(s_a, hidden_units1, activation=tf.nn.relu,
                                 name='l1', trainable=trainable,
-                                regularizer=tf.contrib.slim.regularizer(0.01))
-            l1 = tf.layer_norm(l1)
+                                kernel_regularizer=tf.contrib.slim.l2_regularizer(0.01))
+            l1 = layer_norm(l1)
             l2 = tf.layers.dense(l1, hidden_units2, activation=tf.nn.relu,
                                 name='l2', trainable=trainable,
-                                regularizer=tf.contrib.slim.regularizer(0.01))
+                                kernel_regularizer=tf.contrib.slim.l2_regularizer(0.01))
             l2 = layer_norm(l2)
             # Q(s,a)
             return tf.layers.dense(l2, 1, trainable=trainable,
-                                regularizer=tf.contrib.slim.regularizer(0.01))
+                                kernel_regularizer=tf.contrib.slim.l2_regularizer(0.01))
 
     def write_reward(self, r, ep_i):
         summary = self.sess.run(self.merged,
@@ -179,8 +179,9 @@ def inverted_pendulum_test(env, agent, ep_i):
         print('test: {} reward: {}'.format(j, ep_reward))
         if ep_reward < min_reward:
             did_pass = False
+            break
     # only writing to tensorboard actions w/ no noise
-    agent.write_reward(r, ep_i)
+    agent.write_reward(ep_reward, ep_i)
     return did_pass
 
 for seed_i in range(NUM_RUNS):
