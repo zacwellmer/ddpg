@@ -13,7 +13,7 @@ from fenv import fastenv
 SKIP_FRAMES = 3
 MAX_EPISODES = 1000000
 MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
-NUM_RUNS = 1
+NUM_RUNS = 5
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
@@ -206,3 +206,5 @@ for seed_i in range(NUM_RUNS):
         print('Episode:', i, ' Reward: %.3f' % ep_reward)
         if inverted_pendulum_test(env, ddpg, i):
             break
+        if i % 10000 == 0:
+            ddpg.save(i)
