@@ -8,6 +8,8 @@ class fastenv:
         self.obs_dim = self.e.observation_space.shape[0]
         self.skipcount = skipcount
         self.initialize_obs()
+        self.a_dim = self.e.action_space.shape[0]
+        self.s_dim = self.e.observation_space.shape[0] * self.skipcount
 
     def initialize_obs(self):
         self.prev_obs = deque(tuple(np.zeros((self.skipcount, self.obs_dim))), self.skipcount)
@@ -16,7 +18,7 @@ class fastenv:
         # observation generator
         plain_obs = np.zeros(self.obs_dim) if plain_obs is None else plain_obs
         self.prev_obs.append(plain_obs)
-        return np.array(self.prev_obs)
+        return np.array(self.prev_obs).flatten()
 
     def step(self,action):
         sr = 0
