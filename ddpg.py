@@ -16,10 +16,10 @@ MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
 NUM_RUNS = 5
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
-GAMMA = 0.99     # reward discount
+GAMMA = 0.995     # reward discount
 TAU = 0.01      # soft replacement
 MEMORY_CAPACITY = 1000000
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 LEARN_START = int(1 + MEMORY_CAPACITY / BATCH_SIZE) * 2
 
 RENDER = False
