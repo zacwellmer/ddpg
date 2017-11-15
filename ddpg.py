@@ -207,5 +207,5 @@ for seed_i in range(NUM_RUNS):
         print('Episode:', i, ' Reward: %.3f' % ep_reward)
         if inverted_pendulum_test(env, ddpg, i):
             break
-        if i % 10000 == 0:
+        if (i+1) % 10000 == 0:
             ddpg.save(i)
