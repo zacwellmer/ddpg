@@ -24,7 +24,7 @@ LEARN_START = int(1 + MEMORY_CAPACITY / BATCH_SIZE) * 2
 
 RENDER = False
 ENV_NAME = 'RoboschoolHalfCheetah-v1'
-TEST_REQS = {'RoboschoolHalfCheetah-v1': 4500.0, 
+TEST_REQS = {'RoboschoolHalfCheetah-v1': 4500.0,
              'RoboschoolInvertedPendulum-v1': 950.0}
 ###############################  DDPG  ####################################
 class DDPG(object):
@@ -173,16 +173,15 @@ def inverted_pendulum_test(env, agent, ep_i):
     iterations_to_pass = 100
     min_reward = TEST_REQS[ENV_NAME]
 
-    rewards = []
+    did_pass = True
     for j in range(iterations_to_pass):
         ep_reward = run_episode(env, agent, noise_source=None)
-        rewards.append(ep_reward)
         print('test: {} reward: {}'.format(j, ep_reward))
         if ep_reward < min_reward:
-            return False
-    for k, r in enumerate(rewards): # if test pass write rewards
-        agent.write_reward(r, ep_i+k)
-    return True
+            did_pass = False
+    # only writing to tensorboard actions w/ no noise
+    agent.write_reward(r, ep_i)
+    return did_pass
 
 for seed_i in range(NUM_RUNS):
     tf.reset_default_graph()
@@ -205,7 +204,5 @@ for seed_i in range(NUM_RUNS):
         print('----------------epoch: {} ----------------'.format(seed_i))
         ep_reward = run_episode(env, agent=ddpg, noise_source=ou_noise)
         print('Episode:', i, ' Reward: %.3f' % ep_reward)
-        ddpg.write_reward(ep_reward, i)
         if inverted_pendulum_test(env, ddpg, i):
             break
-        
