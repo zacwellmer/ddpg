@@ -12,25 +12,23 @@ from rpm import RPM
 from fenv import fastenv
 
 #####################  hyper parameters  ####################
-SKIP_FRAMES = 1
-MAX_EPISODES = 5000
+SKIP_FRAMES = 3
+MAX_EPISODES = 1000000
 MAX_EP_STEPS = int(1000 / SKIP_FRAMES)
-NUM_RUNS = 50
+NUM_RUNS = 1
 LR_A = 0.0001    # learning rate for actor
 LR_C = 0.001    # learning rate for critic
 GAMMA = 0.99     # reward discount
 TAU = 0.01      # soft replacement
-MEMORY_CAPACITY = 10000
-BATCH_SIZE = 32
+MEMORY_CAPACITY = 1000000
+BATCH_SIZE = 64
 LEARN_START = int(1 + MEMORY_CAPACITY / BATCH_SIZE) * 2
 
 RENDER = False
-ENV_NAME = 'RoboschoolInvertedPendulum-v1'
-
+ENV_NAME = 'RoboschoolHalfCheetah-v1'
+TEST_REQS = {'RoboschoolHalfCheetah-v1': 4500.0, 
+             'RoboschoolInvertedPendulum-v1': 950.0}
 ###############################  DDPG  ####################################
-def lrelu(x, leak=0.2):
-   return tf.maximum(x, leak * x)
-
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
         self.rpm_loc = ENV_NAME + '-rpm.pickle'
@@ -174,7 +172,7 @@ def run_episode(env, agent, noise_source):
 
 def inverted_pendulum_test(env, agent, ep_i):
     iterations_to_pass = 100
-    min_reward = 950.0
+    min_reward = TEST_REQS[ENV_NAME]
 
     rewards = []
     for j in range(iterations_to_pass):
