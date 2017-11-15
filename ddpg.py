@@ -160,7 +160,7 @@ def run_episode(env, agent, noise_source):
 
 def inverted_pendulum_test(env, agent, ep_i):
     iterations_to_pass = 100
-    min_reward = REQS[ENV_NAME]
+    min_reward = TEST_REQS[ENV_NAME]
 
     rewards = []
     for j in range(iterations_to_pass):
