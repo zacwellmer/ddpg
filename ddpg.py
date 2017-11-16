@@ -32,8 +32,8 @@ TEST_REQS = {'RoboschoolHalfCheetah-v1': 4500.0,
 class DDPG(object):
     def __init__(self, a_dim, s_dim, a_bound,):
         self.rpm_loc = ENV_NAME + '-rpm.pickle'
-        self.checkpoint_loc = ENV_NAME + '-checkpoints'
-        self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/discontinuous_PER'.format(ENV_NAME)
+        self.checkpoint_loc = ENV_NAME + '-checkpoints/'
+        self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/discontinuous_PER/'.format(ENV_NAME)
 
         self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
 
@@ -142,12 +142,12 @@ class DDPG(object):
     def load(self):
         if os.path.exists(self.rpm_loc):
             pickle.load(open(self.rpm_loc, 'rb'))
-
-        latest_loc = tf.train.latest_checkpoint(self.checkpoint_loc)
         last_ep = 0
-        if latest_loc is not None:
-            self.saver.restore(self.sess, latest_loc)
-            last_ep = int(latest_loc.split('-')[-1])
+        if os.path.isdir(self.checkpoint_loc):
+            latest_loc = tf.train.latest_checkpoint(self.checkpoint_loc)
+            if latest_loc is not None:
+                self.saver.restore(self.sess, latest_loc)
+                last_ep = int(latest_loc.split('-')[-1])
         return last_ep
 
 ###############################  training  ####################################
