@@ -34,7 +34,8 @@ class DDPG(object):
         self.rpm_loc = ENV_NAME+'-rpm.pickle'
         self.checkpoint_loc = ENV_NAME + '-checkpoints/'
         self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/PER/'.format(ENV_NAME)
-        self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
+        self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE,
+                        'total_steps': MAX_EPISODES * MAX_EP_STEPS})
 
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
