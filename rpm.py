@@ -22,7 +22,7 @@ class RPM(object):
         self.beta_zero = conf['beta_zero'] if 'beta_zero' in conf else 0.5
         self.batch_size = conf['batch_size'] if 'batch_size' in conf else 64
         self.learn_start = conf['learn_start'] if 'learn_start' in conf else self.size / self.batch_size
-        self.total_steps = conf['steps'] if 'steps' in conf else 100000
+        self.total_steps = conf['steps'] if 'steps' in conf else 1000000
         # partition number N, split total size to N part
         self.partition_num = conf['partition_num'] if 'partition_num' in conf else self.batch_size
 

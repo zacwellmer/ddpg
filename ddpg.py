@@ -35,7 +35,8 @@ class DDPG(object):
         self.checkpoint_loc = ENV_NAME + '-checkpoints/'
         self.tensorboard_loc = '/home/ubuntu/{}-tensorboard/discontinuous_PER/'.format(ENV_NAME)
 
-        self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE})
+        self.rpm = RPM({'size': MEMORY_CAPACITY, 'batch_size': BATCH_SIZE,
+                        'total_steps': MAX_EPISODES*MAX_EP_STEPS})
 
         self.sess = tf.Session()
         self.a_replace_counter, self.c_replace_counter = 0, 0
@@ -135,9 +136,8 @@ class DDPG(object):
         self.train_writer.add_summary(summary, ep_i)
 
     def save(self, i):
-
-        self.rpm.save(self.rpm_loc)
         self.saver.save(self.sess, self.checkpoint_loc, i)
+        self.rpm.save(self.rpm_loc)
 
     def load(self):
         if os.path.exists(self.rpm_loc):
@@ -199,7 +199,6 @@ def inverted_pendulum_test(env, agent, ep_i):
 for seed_i in range(NUM_RUNS):
     tf.reset_default_graph()
     N_STEPS = 0
-
     env = gym.make(ENV_NAME)
     env = env.unwrapped
     env.seed(seed_i)
@@ -212,14 +211,17 @@ for seed_i in range(NUM_RUNS):
     a_low = env.e.action_space.low
 
     ddpg = DDPG(a_dim, s_dim, a_bound)
-    start_ep = ddpg.load()
+    start_ep = 0#ddpg.load()
     ou_noise = OUNoise(a_dim, sigma=0.2)
 
     for i in range(start_ep, MAX_EPISODES):
         print('----------------epoch: {} ----------------'.format(seed_i))
         ep_reward = run_episode(env, agent=ddpg, noise_source=ou_noise)
-        print('Episode:', i, ' Reward: %.3f' % ep_reward)
+        print('Episode:', i, 'Reward: %.3f' % ep_reward)
         if inverted_pendulum_test(env, ddpg, i):
             break
         if (i+1) % 10000 == 0:
-            ddpg.save(i)
+            try:
+                ddpg.save(i)
+            except:
+                print('something broke in save') 
