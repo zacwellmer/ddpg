@@ -198,7 +198,7 @@ for seed_i in range(NUM_RUNS):
     a_low = env.e.action_space.low
 
     ddpg = DDPG(a_dim, s_dim, a_bound)
-    start_ep = ddpg.load()
+    start_ep = 0 
     ou_noise = OUNoise(a_dim, sigma=0.2)
 
     for i in range(start_ep, MAX_EPISODES):
